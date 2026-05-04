@@ -6,8 +6,6 @@ auxiliary heat, and (eventually) psychrometric comfort behind a single
 managed `climate` entity per zone.
 
 The full architectural design is in [`design-overview.md`](design-overview.md);
-the staged implementation roadmap is in
-[`.cursor/plans/multisplit_zone_controller_roadmap_*.plan.md`](.cursor/plans/).
 
 ## Status
 
