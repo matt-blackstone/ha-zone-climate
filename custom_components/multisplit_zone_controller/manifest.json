@@ -1,12 +1,13 @@
 {
   "domain": "multisplit_zone_controller",
   "name": "Multi-Split Zone Controller",
-  "version": "0.1.0",
-  "documentation": "https://github.com/mblackstone/ha-zone-climate",
-  "issue_tracker": "https://github.com/mblackstone/ha-zone-climate/issues",
   "codeowners": ["@mblackstone"],
   "config_flow": true,
-  "iot_class": "local_push",
   "dependencies": ["climate", "sensor"],
-  "requirements": []
+  "documentation": "https://github.com/mblackstone/ha-zone-climate",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/mblackstone/ha-zone-climate/issues",
+  "requirements": [],
+  "version": "0.1.0"
 }

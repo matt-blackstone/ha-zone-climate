@@ -1,5 +1,8 @@
 # Home Assistant Multi-Split Zone Controller
 
+[![Validate](https://github.com/mblackstone/ha-zone-climate/actions/workflows/validate.yml/badge.svg)](https://github.com/mblackstone/ha-zone-climate/actions/workflows/validate.yml)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 Custom Home Assistant integration that hides multi-split mini-split
 restrictions, sensor fusion, occupancy-aware setback, fan coordination,
 auxiliary heat, and (eventually) psychrometric comfort behind a single
