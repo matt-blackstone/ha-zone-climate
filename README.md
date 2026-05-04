@@ -6,6 +6,8 @@ auxiliary heat, and (eventually) psychrometric comfort behind a single
 managed `climate` entity per zone.
 
 The full architectural design is in [`design-overview.md`](design-overview.md);
+the staged implementation roadmap is in
+[`.cursor/plans/multisplit_zone_controller_roadmap_*.plan.md`](.cursor/plans/).
 
 ## Status
 
@@ -55,6 +57,11 @@ tests/integration/       # Dockerised end-to-end tests (real HA container)
   test_e2e.py            # Twelve scenario tests covering all phases
 config/                  # Manual dev-loop Home Assistant sandbox config
 docker-compose.yml       # ghcr.io/home-assistant/home-assistant:stable
+
+hacs.json                # HACS custom-integration metadata (display name,
+                         # min HA version, README rendering)
+.github/workflows/
+  validate.yml           # HACS + hassfest validation on PR / push / nightly
 ```
 
 ## Running the test suite
@@ -126,6 +133,16 @@ the UI to drive scenarios while watching the managed
 `climate.living_room` / `climate.bedroom` / `climate.office` entities
 react. Setup walkthrough for both sandboxes lives in
 [`SETUP.md`](SETUP.md).
+
+## Installation
+
+See [`INSTALL.md`](INSTALL.md) for the full installation guide,
+covering all four Home Assistant install types (HAOS, Supervised,
+Container, Core) and three install methods (HACS as a custom
+repository, manual release zip, git clone). Quick version: add
+`https://github.com/mblackstone/ha-zone-climate` as a custom
+repository in HACS, download, restart HA. Then continue at
+*Configuration* below.
 
 ## Configuration
 
@@ -332,3 +349,57 @@ exposed in a form.
 
   Inline TODO marker lives at the top of `arbitrate()` in
   `custom_components/multisplit_zone_controller/arbitration.py`.
+
+## Releasing
+
+The integration is distributed via HACS as a custom repository. Cutting
+a new release is two files + two git commands.
+
+### Pre-flight
+
+* CI is green on `main` (the `Validate` workflow runs HACS validation
+  + hassfest on every push).
+* `custom_components/multisplit_zone_controller/manifest.json` →
+  bump `"version"` to the new semver.
+* `hacs.json` → no version bump needed (HACS reads the version from
+  the manifest), but **do** bump the `"homeassistant"` floor here
+  if the release uses a newly-required HA API. Keep the two values
+  consistent with what `INSTALL.md` documents.
+* Update `INSTALL.md`'s *Prerequisites* table if the HA-version
+  floor changed.
+
+### Tag and release
+
+```bash
+# Replace v0.X.Y with the version you bumped manifest.json to.
+git tag v0.X.Y
+git push origin v0.X.Y
+
+gh release create v0.X.Y \
+  --title "v0.X.Y" \
+  --notes-file CHANGELOG-v0.X.Y.md   # or --generate-notes
+```
+
+HACS picks up new releases within a few minutes of the tag landing
+on GitHub. Users on existing installs will see *Update available* in
+their HACS UI on the next refresh cycle.
+
+### Three sources of truth, kept in sync
+
+| File | What it advertises | Used by |
+|---|---|---|
+| `manifest.json` `"version"` | The integration version Home Assistant reports in *Settings → Devices & Services → ⋮ → System info* and in `hass diagnostics`. | Home Assistant Core, HACS update detection. |
+| `hacs.json` `"homeassistant"` | Minimum HA version HACS will allow the integration to be installed on. | HACS catalog filter. |
+| `INSTALL.md` *Prerequisites* table | Human-readable install requirements. | End users reading the docs. |
+
+A version bump should normally only touch `manifest.json`. The HA
+floor only moves when you start using a new HA API; when it does,
+update all three in the same commit.
+
+### What if there's never been a release yet?
+
+HACS *can* install custom integrations off the default branch (`main`)
+when no tagged releases exist — it falls back to the latest commit's
+manifest version. So the integration is technically installable today,
+but users won't get update notifications until the first tag exists.
+Cut `v0.1.0` as soon as you're comfortable having strangers install it.

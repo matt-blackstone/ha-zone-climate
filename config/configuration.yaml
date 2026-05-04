@@ -1,0 +1,56 @@
+# Minimal Home Assistant configuration for the multi-split zone controller
+# development sandbox. Loads helper fixture entities (fake heads, sensors)
+# from packages/ so the integration has something to talk to.
+
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.multisplit_zone_controller: debug
+
+homeassistant:
+  packages: !include_dir_named packages
+
+multisplit_zone_controller:
+  groups:
+    - group_id: outdoor_unit_1
+      name: "Outdoor Unit 1"
+      update_interval: 15
+      incompatible_mode_pairs:
+        - ["heat", "cool"]
+        - ["heat", "dry"]
+      zones:
+        - zone_id: living
+          name: "Living Room"
+          head_climate: climate.fake_head_living
+          fusion:
+            strategy: external_preferred
+            head_temp_sensor: sensor.fake_head_living_temp
+            external_temp_sensors:
+              - sensor.living_room_temp
+            external_humidity_sensors:
+              - sensor.living_room_humidity
+          safety:
+            min_temp: 8.0
+            max_temp: 32.0
+        - zone_id: bedroom
+          name: "Bedroom"
+          head_climate: climate.fake_head_bedroom
+          fusion:
+            strategy: external_preferred
+            head_temp_sensor: sensor.fake_head_bedroom_temp
+            external_temp_sensors:
+              - sensor.bedroom_temp
+          safety:
+            min_temp: 10.0
+            max_temp: 28.0
+        - zone_id: office
+          name: "Office"
+          head_climate: climate.fake_head_office
+          fusion:
+            strategy: head_only
+            head_temp_sensor: sensor.fake_head_office_temp
+          safety:
+            min_temp: 10.0
+            max_temp: 30.0

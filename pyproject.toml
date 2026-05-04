@@ -1,0 +1,43 @@
+[project]
+name = "ha-multisplit-zone-controller"
+version = "0.1.0"
+description = "Home Assistant custom integration for multi-split mini-split zone control"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "voluptuous>=0.13",
+    "mypy>=1.8",
+    "ruff>=0.4",
+]
+ha = [
+    "homeassistant>=2024.4",
+]
+e2e = [
+    "requests>=2.31",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"
+markers = [
+    "e2e: dockerised end-to-end integration tests against a live Home Assistant container",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+files = ["custom_components/multisplit_zone_controller"]

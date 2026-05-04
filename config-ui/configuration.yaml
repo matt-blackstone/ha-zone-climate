@@ -1,0 +1,19 @@
+# Throw-away Home Assistant configuration for *UI*-driven testing of the
+# multi-split zone controller. Differs from `../config/configuration.yaml`
+# in one important way: there is **no** `multisplit_zone_controller:`
+# block here, so the integration starts un-configured and must be added
+# from the UI (Settings → Devices & Services → Add Integration →
+# "Multi-Split Zone Controller").
+#
+# The same fixtures package is loaded so the UI has fake heads / room
+# sensors to point at while you're poking around.
+
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.multisplit_zone_controller: debug
+
+homeassistant:
+  packages: !include_dir_named packages

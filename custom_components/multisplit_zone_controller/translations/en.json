@@ -1,0 +1,170 @@
+{
+  "config": {
+    "step": {
+      "group": {
+        "title": "Outdoor unit (compressor group)",
+        "description": "One config entry per outdoor unit. The group_id is permanent — pick a short identifier you'll recognise (lowercase letters, numbers, and underscores).",
+        "data": {
+          "group_id": "Group ID",
+          "name": "Friendly name",
+          "update_interval": "Update interval (seconds)"
+        }
+      },
+      "compat": {
+        "title": "Compressor compatibility",
+        "description": "By default the integration treats heat \u2194 cool and heat \u2194 fan_only as physically incompatible (the loser is blocked). Add one extra incompatible pair below if your hardware needs it; you can configure more by editing the entry's YAML later.",
+        "data": {
+          "extra_pair_mode_a": "Extra incompatible pair \u2014 mode A",
+          "extra_pair_mode_b": "Extra incompatible pair \u2014 mode B",
+          "disable_default_incompatible_mode_pairs": "Disable the default incompatible pairs (advanced)"
+        }
+      },
+      "zone_menu": {
+        "title": "Zones in this group",
+        "description": "{zones_added}\n\nChoose 'add_zone' to add another indoor head, 'edit_advanced_yaml' to reach knobs the form doesn't expose (pre-conditioning, humidity scoring, multi-sensor fusion), or 'finish' to review the YAML and create the entry.",
+        "data": {"next": "Action"}
+      },
+      "advanced_yaml": {
+        "title": "Advanced \u2014 edit raw YAML",
+        "description": "Edit the entire group dict directly. The structure mirrors a single entry under YAML's `groups:` list. Submit to validate and return; invalid input keeps you here.\n\n{last_error}",
+        "data": {"group_yaml": "Group YAML"}
+      },
+      "confirm": {
+        "title": "Review and create",
+        "description": "About to create the following config entry. Pick 'create' to save, 'edit_yaml' to tweak the raw dict, or 'back_to_menu' to add more zones.\n\n```yaml\n{yaml}\n```",
+        "data": {"next": "Action"}
+      },
+      "zone_basic": {
+        "title": "Zone basics",
+        "description": "Each zone wraps one upstream mini-split head with sensor fusion, safety, and arbitration. Pick a short zone_id and point it at the upstream climate entity that the integration should command.",
+        "data": {
+          "zone_id": "Zone ID",
+          "name": "Friendly name",
+          "head_climate": "Upstream head climate entity",
+          "default_target_temperature": "Default target temperature (\u00b0C)",
+          "min_temp": "Minimum allowed setpoint (\u00b0C)",
+          "max_temp": "Maximum allowed setpoint (\u00b0C)",
+          "always_assert_head_state": "Re-issue commands to the head every tick (advanced \u2014 may cause IR remote heads to beep)"
+        }
+      },
+      "zone_fusion": {
+        "title": "Sensor fusion",
+        "description": "How readings from the upstream head's built-in sensor and any room sensors are combined into the value used for control.\n\nMost mini-split heads do not ship a usable humidity reading, so the humidity field below picks a *room* hygrometer (the same role the room temperature sensor plays for temperature). Future versions may grow head/room humidity blending; for now anything you pick is treated as a room sensor.",
+        "data": {
+          "strategy": "Fusion strategy",
+          "head_temp_sensor": "Head temperature source (climate entity or sensor)",
+          "external_temp_sensor": "Room temperature sensor",
+          "external_humidity_sensor": "Room humidity sensor (optional)"
+        }
+      },
+      "zone_safety": {
+        "title": "Safety floor & ceiling",
+        "description": "Hard limits enforced regardless of user intent. If the room drops below the floor the integration forces HEAT; above the ceiling, COOL. Leave blank to skip.",
+        "data": {
+          "min_temp": "Safety floor (\u00b0C)",
+          "max_temp": "Safety ceiling (\u00b0C)"
+        }
+      },
+      "zone_advanced_menu": {
+        "title": "Optional zone features",
+        "description": "{configured}\n\nPick a section to configure, or choose 'done' to finish this zone.",
+        "data": {"section": "Section"}
+      },
+      "zone_occupancy": {
+        "title": "Occupancy",
+        "description": "Tie this zone to an occupancy signal so the integration can apply setback when the space is empty.",
+        "data": {
+          "source_entity_id": "Occupancy source entity",
+          "kind": "Source kind",
+          "linger_minutes": "Treat the zone as 'recent' for this many minutes after it goes unoccupied"
+        }
+      },
+      "zone_setback": {
+        "title": "Setback offsets",
+        "description": "How far the active setpoint moves away from the comfort target when the zone is unoccupied.",
+        "data": {
+          "offset_heat": "Heat setback offset (\u00b0C)",
+          "offset_cool": "Cool setback offset (\u00b0C)"
+        }
+      },
+      "zone_fan": {
+        "title": "Ceiling fan",
+        "description": "Optional coordinated ceiling-fan dispatch. The fan helps shave a small comfort credit off the deviation when running.",
+        "data": {
+          "enabled": "Enable fan dispatch for this zone",
+          "fan_entity_id": "Fan entity",
+          "lockout_entity_id": "Lockout entity (binary_sensor or input_boolean \u2014 prevents the fan from running while ON)"
+        }
+      },
+      "zone_aux": {
+        "title": "Auxiliary heat",
+        "description": "Optional resistive heater used transparently when the head can't keep up (cold-weather lockout, head fault, or near-floor safety). Hidden from the managed climate entity.",
+        "data": {
+          "enabled": "Enable aux heat for this zone",
+          "device_type": "Device type",
+          "device_entity_id": "Aux device entity",
+          "outdoor_temp_sensor": "Outdoor temperature sensor",
+          "outdoor_lockout_temp": "Outdoor lockout temperature (\u00b0C \u2014 aux engages at/below this)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "A config entry for this group_id already exists.",
+      "not_yet_implemented": "The UI setup flow is not yet implemented."
+    },
+    "error": {
+      "invalid_id": "Use only lowercase letters, numbers, and underscores (no spaces, must start with a letter).",
+      "duplicate_group_id": "A group with this ID is already loaded (from YAML or another UI entry). Pick a different group_id.",
+      "duplicate_zone_id": "A zone with this id is already part of the group.",
+      "min_must_be_below_max": "The minimum value must be strictly below the maximum.",
+      "modes_must_differ": "The two modes in an incompatible pair must differ.",
+      "both_modes_required": "Provide both modes (or leave both blank to skip).",
+      "external_sensor_required_for_strategy": "This fusion strategy needs at least one external temperature sensor.",
+      "head_sensor_required_for_strategy": "The 'head_only' strategy needs a head temperature source.",
+      "need_at_least_one_zone": "Add at least one zone before finishing.",
+      "invalid_group": "Configuration failed validation. Review your inputs and try again.",
+      "yaml_must_be_a_mapping": "The YAML must be a mapping (key/value), not a list or scalar."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Edit settings",
+        "description": "This integration was set up via the UI ({zone_count} zone(s)). Pick what to edit. The basic forms cover the common knobs; pick `__yaml__` to edit the entire entry as YAML (reaches options the form doesn't expose). Structural changes (add/remove zones, change a fusion strategy or head_climate entity) are only possible via YAML.\n\nCurrent entry:\n```yaml\n{yaml}\n```",
+        "data": {"target": "What to edit"}
+      },
+      "advanced_yaml": {
+        "title": "Advanced \u2014 edit raw YAML",
+        "description": "Edit the entire entry as YAML. Submit to validate and save; invalid input keeps you here.",
+        "data": {"group_yaml": "Entry YAML"}
+      },
+      "group_settings": {
+        "title": "Group settings",
+        "data": {
+          "update_interval": "Update interval (seconds)"
+        }
+      },
+      "zone_settings": {
+        "title": "Zone: {zone_name}",
+        "description": "Edit frequently-tuned per-zone settings. Leaving a safety value blank disables that direction. Enabling fan/aux here only flips the toggle \u2014 the entity assignments stay as they were.",
+        "data": {
+          "min_temp": "Safety floor (\u00b0C)",
+          "max_temp": "Safety ceiling (\u00b0C)",
+          "offset_heat": "Heat setback offset (\u00b0C)",
+          "offset_cool": "Cool setback offset (\u00b0C)",
+          "linger_minutes": "Occupancy linger (minutes)",
+          "fan_enabled": "Fan dispatch enabled",
+          "aux_enabled": "Aux heat enabled"
+        }
+      }
+    },
+    "abort": {
+      "invalid_options": "Validation failed: {detail}"
+    },
+    "error": {
+      "min_must_be_below_max": "The safety floor must be strictly below the ceiling.",
+      "invalid_group": "Configuration failed validation. Review your inputs and try again.",
+      "yaml_must_be_a_mapping": "The YAML must be a mapping (key/value), not a list or scalar."
+    }
+  }
+}

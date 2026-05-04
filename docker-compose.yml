@@ -1,0 +1,18 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: ha-msz-dev
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config:/config
+      - ./custom_components:/config/custom_components
+      # Mount the test-only ``recording_climate`` helper so the dev
+      # sandbox's fake heads can pretend to be full multi-mode mini-
+      # splits (heat/cool/auto/fan_only/dry) without dragging in a
+      # heavyweight integration. ``generic_thermostat`` only supports
+      # one mode at a time, which would crash a managed zone if the
+      # user tried to dispatch e.g. ``cool`` to a heater-only fake.
+      - ./tests/integration/recording_climate:/config/custom_components/recording_climate:ro
+    environment:
+      - TZ=America/Chicago

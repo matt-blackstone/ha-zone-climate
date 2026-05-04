@@ -1,0 +1,23 @@
+# Throw-away Home Assistant container used by the e2e test suite.
+# Brought up and torn down per pytest session by tests/integration/conftest.py.
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: msz-ha-e2e
+    restart: "no"
+    ports:
+      - "${MSZ_E2E_HOST_PORT:-8124}:8123"
+    volumes:
+      - ./ha_config:/config
+      - ../../custom_components/multisplit_zone_controller:/config/custom_components/multisplit_zone_controller:ro
+      - ./recording_climate:/config/custom_components/recording_climate:ro
+    environment:
+      TZ: "UTC"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -q --spider http://localhost:8123/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s

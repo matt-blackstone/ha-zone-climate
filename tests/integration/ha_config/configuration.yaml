@@ -1,0 +1,87 @@
+# Test-only Home Assistant config for end-to-end integration tests.
+# Loaded inside the throw-away container started by tests/integration/conftest.py.
+
+default_config:
+
+logger:
+  default: warning
+  logs:
+    custom_components.multisplit_zone_controller: debug
+    custom_components.recording_climate: debug
+
+homeassistant:
+  # Unit system is substituted by tests/integration/conftest.py so the
+  # same suite can run under both metric and us_customary HA configs.
+  unit_system: us_customary
+  temperature_unit: F
+  packages: !include_dir_named packages
+
+multisplit_zone_controller:
+  groups:
+    - group_id: outdoor_unit
+      name: "Outdoor Unit"
+      update_interval: 5
+      incompatible_mode_pairs:
+        - ["heat", "cool"]
+      zones:
+        - zone_id: living
+          name: "Living Zone"
+          head_climate: climate.fake_head_living
+          default_target_temperature: 22
+          min_temp: 16
+          max_temp: 30
+          fusion:
+            strategy: external_preferred
+            head_temp_sensor: climate.fake_head_living
+            external_temp_sensors:
+              - sensor.living_temp
+          safety:
+            min_temp: 16
+            max_temp: 28
+
+        - zone_id: office
+          name: "Office Zone"
+          head_climate: climate.fake_head_office
+          default_target_temperature: 22
+          min_temp: 16
+          max_temp: 30
+          # Exercise the re-assert-every-tick path in e2e. The living zone
+          # uses the default (False) so both code paths get coverage.
+          always_assert_head_state: true
+          fusion:
+            strategy: external_preferred
+            head_temp_sensor: climate.fake_head_office
+            external_temp_sensors:
+              - sensor.office_temp
+          safety:
+            min_temp: 18
+            max_temp: 27
+          occupancy:
+            linger_minutes: 0
+            sources:
+              - entity_id: input_boolean.office_occupied
+                kind: presence
+          setback:
+            offset_heat: 3
+            offset_cool: 3
+          aux_heat:
+            enabled: true
+            device_entity_id: switch.fake_office_aux
+            device_type: switch
+            settle_seconds: 1
+            outdoor_lockout_temp: 0
+            outdoor_temp_sensor: input_number.outdoor_temp
+            fault_on_head_unavailable: false
+
+        # Wired to a deliberately heater-only fake head. Lets the e2e
+        # suite exercise the dispatcher's capability check + per-zone
+        # resilience without simulating a real comms failure.
+        - zone_id: heatonly
+          name: "Heat-only Zone"
+          head_climate: climate.fake_head_heatonly
+          default_target_temperature: 22
+          min_temp: 16
+          max_temp: 30
+          fusion:
+            strategy: head_only
+            head_temp_sensor: climate.fake_head_heatonly

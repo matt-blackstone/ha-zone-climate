@@ -1,0 +1,31 @@
+# Throw-away HA container for *UI*-driven configuration testing.
+# Runs alongside (rather than instead of) the YAML-driven dev sandbox in
+# `docker-compose.yml`:
+#
+#   docker compose -f docker-compose.yml     up -d   # YAML, port 8123
+#   docker compose -f docker-compose.ui.yml  up -d   # UI,   port 8125
+#
+# Reuses the fixtures package from ../config/packages so both sandboxes
+# expose the same set of fake heads / sensors / switches without
+# duplicating the YAML.
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: ha-msz-ui
+    restart: unless-stopped
+    ports:
+      - "8125:8123"
+    volumes:
+      - ./config-ui:/config
+      - ./config/packages:/config/packages:ro
+      - ./custom_components:/config/custom_components
+      # Mount the test-only ``recording_climate`` helper so the UI
+      # sandbox's fake heads support every HVAC mode the integration
+      # might dispatch (heat / cool / auto / fan_only / dry). Without
+      # this the heads would be heater-only (generic_thermostat) and
+      # any UI request for cool/fan_only/dry would raise a
+      # ServiceValidationError inside the dispatcher.
+      - ./tests/integration/recording_climate:/config/custom_components/recording_climate:ro
+    environment:
+      - TZ=America/Chicago

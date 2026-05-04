@@ -1,0 +1,193 @@
+# Fixture entities used by the multi-split zone controller dev sandbox.
+# Three "fake" mini-split heads (via generic_thermostat) plus
+# input_number-backed temperature sensors stand in for real room sensors.
+
+input_number:
+  living_room_temp:
+    name: Living Room Temperature
+    min: 0
+    max: 40
+    step: 0.1
+    initial: 21.0
+    unit_of_measurement: "°C"
+  living_room_humidity:
+    name: Living Room Humidity
+    min: 0
+    max: 100
+    step: 1
+    initial: 45
+    unit_of_measurement: "%"
+  bedroom_temp:
+    name: Bedroom Temperature
+    min: 0
+    max: 40
+    step: 0.1
+    initial: 20.0
+    unit_of_measurement: "°C"
+  fake_head_living_temp:
+    name: Fake Head Living Temperature
+    min: 0
+    max: 40
+    step: 0.1
+    initial: 21.5
+    unit_of_measurement: "°C"
+  fake_head_bedroom_temp:
+    name: Fake Head Bedroom Temperature
+    min: 0
+    max: 40
+    step: 0.1
+    initial: 20.5
+    unit_of_measurement: "°C"
+  fake_head_office_temp:
+    name: Fake Head Office Temperature
+    min: 0
+    max: 40
+    step: 0.1
+    initial: 22.0
+    unit_of_measurement: "°C"
+  fake_head_living_setpoint:
+    name: Fake Head Living Setpoint
+    min: 5
+    max: 35
+    step: 0.5
+    initial: 21.0
+    unit_of_measurement: "°C"
+  fake_head_bedroom_setpoint:
+    name: Fake Head Bedroom Setpoint
+    min: 5
+    max: 35
+    step: 0.5
+    initial: 20.0
+    unit_of_measurement: "°C"
+  fake_head_office_setpoint:
+    name: Fake Head Office Setpoint
+    min: 5
+    max: 35
+    step: 0.5
+    initial: 22.0
+    unit_of_measurement: "°C"
+
+template:
+  - sensor:
+      - name: "Living Room Temp"
+        unique_id: living_room_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: "{{ states('input_number.living_room_temp') }}"
+      - name: "Living Room Humidity"
+        unique_id: living_room_humidity
+        unit_of_measurement: "%"
+        device_class: humidity
+        state: "{{ states('input_number.living_room_humidity') }}"
+      - name: "Bedroom Temp"
+        unique_id: bedroom_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: "{{ states('input_number.bedroom_temp') }}"
+      - name: "Fake Head Living Temp"
+        unique_id: fake_head_living_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: "{{ states('input_number.fake_head_living_temp') }}"
+      - name: "Fake Head Bedroom Temp"
+        unique_id: fake_head_bedroom_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: "{{ states('input_number.fake_head_bedroom_temp') }}"
+      - name: "Fake Head Office Temp"
+        unique_id: fake_head_office_temp
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state: "{{ states('input_number.fake_head_office_temp') }}"
+
+input_boolean:
+  fake_head_living_on:
+    name: Fake Head Living Power
+  fake_head_bedroom_on:
+    name: Fake Head Bedroom Power
+  fake_head_office_on:
+    name: Fake Head Office Power
+
+input_select:
+  fake_head_living_mode:
+    name: Fake Head Living Mode
+    options: ["off", "heat", "cool", "auto", "fan_only", "dry"]
+    initial: "off"
+  fake_head_bedroom_mode:
+    name: Fake Head Bedroom Mode
+    options: ["off", "heat", "cool", "auto", "fan_only", "dry"]
+    initial: "off"
+  fake_head_office_mode:
+    name: Fake Head Office Mode
+    options: ["off", "heat", "cool", "auto", "fan_only", "dry"]
+    initial: "off"
+
+# Switch entities available for *aux-heat* testing. The integration
+# can target a switch as the resistive-heater device for any zone; the
+# template switches below proxy three input_booleans so you can flip
+# them in the UI and watch the integration react. They are NOT used
+# by the head climate fakes (those are recording_climate, see below).
+switch:
+  - platform: template
+    switches:
+      fake_head_living_heater:
+        friendly_name: Fake Living Aux Heater
+        value_template: "{{ is_state('input_boolean.fake_head_living_on', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.fake_head_living_on
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.fake_head_living_on
+      fake_head_bedroom_heater:
+        friendly_name: Fake Bedroom Aux Heater
+        value_template: "{{ is_state('input_boolean.fake_head_bedroom_on', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.fake_head_bedroom_on
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.fake_head_bedroom_on
+      fake_head_office_heater:
+        friendly_name: Fake Office Aux Heater
+        value_template: "{{ is_state('input_boolean.fake_head_office_on', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.fake_head_office_on
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.fake_head_office_on
+
+# Fake mini-split heads. These use the test-only ``recording_climate``
+# platform (mounted into the container by the docker-compose files)
+# rather than ``generic_thermostat`` so they can advertise the *full*
+# mode set the integration may dispatch (heat / cool / auto /
+# fan_only / dry). A heater-only generic_thermostat would raise a
+# ServiceValidationError if a user asked the managed zone for, say,
+# ``cool`` — leaving the coordinator in a bad state.
+#
+# Each entity reads its current_temperature from one of the
+# input_number-backed sensors above so you can drive scenarios from
+# the UI by adjusting those sliders.
+climate:
+  - platform: recording_climate
+    name: Fake Head Living
+    modes: ["off", "heat", "cool", "auto", "fan_only", "dry"]
+    initial_temperature: 21
+    current_temperature_entity: sensor.fake_head_living_temp
+  - platform: recording_climate
+    name: Fake Head Bedroom
+    modes: ["off", "heat", "cool", "auto", "fan_only", "dry"]
+    initial_temperature: 20
+    current_temperature_entity: sensor.fake_head_bedroom_temp
+  - platform: recording_climate
+    name: Fake Head Office
+    modes: ["off", "heat", "cool", "auto", "fan_only", "dry"]
+    initial_temperature: 22
+    current_temperature_entity: sensor.fake_head_office_temp

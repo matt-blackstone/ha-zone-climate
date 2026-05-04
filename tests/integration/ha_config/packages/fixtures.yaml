@@ -1,0 +1,87 @@
+# Synthetic upstream entities the integration arbitrates over.
+# Each input_number is a "room" sensor, the recording_climate platforms
+# are fake mini-split heads, and the template switch backed by an
+# input_boolean stands in for an auxiliary heater.
+#
+# Uses the modern `template:` block (legacy `sensor: platform: template`
+# and `switch: platform: template` are removed in HA 2026.6).
+
+input_number:
+  living_temp:
+    name: Living Room Temperature
+    min: -20
+    max: 50
+    step: 0.1
+    initial: 22
+    unit_of_measurement: "°C"
+  office_temp:
+    name: Office Temperature
+    min: -20
+    max: 50
+    step: 0.1
+    initial: 22
+    unit_of_measurement: "°C"
+  outdoor_temp:
+    name: Outdoor Temperature
+    min: -40
+    max: 50
+    step: 0.1
+    initial: 5
+    unit_of_measurement: "°C"
+
+input_boolean:
+  office_occupied:
+    name: Office Occupancy
+    initial: on
+  fake_office_aux_state:
+    name: Office Aux Heat (raw state)
+    initial: off
+
+template:
+  - sensor:
+      - name: Living Temp
+        default_entity_id: sensor.living_temp
+        unique_id: msz_e2e_living_temp
+        unit_of_measurement: "°C"
+        state: "{{ states('input_number.living_temp') }}"
+      - name: Office Temp
+        default_entity_id: sensor.office_temp
+        unique_id: msz_e2e_office_temp
+        unit_of_measurement: "°C"
+        state: "{{ states('input_number.office_temp') }}"
+  - switch:
+      - name: Fake Office Aux
+        default_entity_id: switch.fake_office_aux
+        unique_id: msz_e2e_fake_office_aux
+        state: "{{ is_state('input_boolean.fake_office_aux_state', 'on') }}"
+        turn_on:
+          - target:
+              entity_id:
+                - input_boolean.fake_office_aux_state
+            action: input_boolean.turn_on
+        turn_off:
+          - target:
+              entity_id:
+                - input_boolean.fake_office_aux_state
+            action: input_boolean.turn_off
+
+climate:
+  - platform: recording_climate
+    name: Fake Head Living
+    current_temperature_entity: sensor.living_temp
+    initial_temperature: 22
+  - platform: recording_climate
+    name: Fake Head Office
+    current_temperature_entity: sensor.office_temp
+    initial_temperature: 22
+  # Intentionally heater-only: advertises only ``off`` and ``heat`` so
+  # the e2e suite can verify the dispatcher's capability pre-flight
+  # check (skips COOL/FAN_ONLY/etc. without raising) and the per-zone
+  # resilience contract (one zone's incompatible mode does not abort
+  # the rest of the group's dispatch). See
+  # ``tests/integration/test_e2e.py::test_heater_only_head_does_not_break_other_zones``.
+  - platform: recording_climate
+    name: Fake Head Heatonly
+    current_temperature_entity: sensor.living_temp
+    initial_temperature: 22
+    modes: ["off", "heat"]

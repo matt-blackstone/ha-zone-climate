@@ -1,0 +1,10 @@
+{
+  "domain": "recording_climate",
+  "name": "Recording Climate (test helper)",
+  "version": "0.0.1",
+  "documentation": "https://example.invalid",
+  "codeowners": [],
+  "dependencies": [],
+  "requirements": [],
+  "iot_class": "local_polling"
+}
