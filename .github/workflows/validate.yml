@@ -9,6 +9,12 @@
 # The nightly schedule catches regressions in HACS / HA Core's rules
 # themselves (e.g. a new manifest field becoming required) without
 # needing a code change to trigger.
+#
+# The HACS ``brands`` check is satisfied by the local
+# ``custom_components/multisplit_zone_controller/icon.png`` asset.
+# When the integration is later registered upstream in
+# home-assistant/brands, the local asset becomes redundant but
+# remains harmless.
 name: Validate
 
 on:
@@ -39,5 +45,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Hassfest validation
-        uses: home-assistant/actions/hassfest@master
+      # We invoke the hassfest docker image directly rather than via the
+      # ``home-assistant/actions/hassfest@master`` wrapper because the
+      # wrapper mounts the entire workspace, which causes hassfest to
+      # auto-discover every ``manifest.json`` it can find — including
+      # the test-only ``recording_climate`` fake under
+      # ``tests/integration/``. Mounting *only* ``custom_components/``
+      # constrains discovery to the published integration. Result is
+      # equivalent to what the action does, just scoped correctly.
+      - name: Hassfest validation (custom_components/ only)
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/custom_components":/github/workspace/custom_components:ro \
+            ghcr.io/home-assistant/hassfest:latest
