@@ -4,10 +4,10 @@
   "codeowners": ["@mblackstone"],
   "config_flow": true,
   "dependencies": ["climate", "sensor"],
-  "documentation": "https://github.com/mblackstone/ha-zone-climate",
+  "documentation": "https://github.com/matt-blackstone/ha-zone-climate",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/mblackstone/ha-zone-climate/issues",
+  "issue_tracker": "https://github.com/matt-blackstone/ha-zone-climate/issues",
   "requirements": [],
   "version": "0.1.0"
 }
