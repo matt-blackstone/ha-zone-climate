@@ -1,0 +1,43 @@
+# Validates the integration against both:
+#   1. HACS (custom-integration store rules: hacs.json shape, repository
+#      structure, manifest version field, brand image presence, etc.)
+#   2. hassfest (Home Assistant Core's official integration validator:
+#      manifest schema, services.yaml shape, translation key surface,
+#      dependency graph, IoT class, etc.)
+#
+# Both are the de-facto standard pair for a custom HA integration repo.
+# The nightly schedule catches regressions in HACS / HA Core's rules
+# themselves (e.g. a new manifest field becoming required) without
+# needing a code change to trigger.
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Hassfest validation
+        uses: home-assistant/actions/hassfest@master
