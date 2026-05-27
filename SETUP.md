@@ -44,6 +44,28 @@ these as fakes you can poke from the UI.
 
 ---
 
+## Temperature units
+
+All integration configuration temperature values are written in
+**Celsius**, regardless of Home Assistant's selected display unit. This
+keeps YAML, UI-entry data, tests, and the arbitration engine using one
+unit system.
+
+| Surface | Unit |
+|---|---|
+| YAML and advanced YAML editor values such as `default_target_temperature`, zone `min_temp` / `max_temp`, `safety.min_temp` / `safety.max_temp`, `setback` offsets, `demand_deadband`, aux heat temperatures, fan comfort credits, and calibration offsets | Celsius |
+| Internal control math, arbitration scores, safety checks, and diagnostics' native values | Celsius |
+| Incoming `sensor.*` readings | Read from the entity's `unit_of_measurement`, then converted to Celsius |
+| Incoming `climate.*` readings, including physical display thermostats | Interpreted in HA's configured temperature display unit when the climate entity does not publish an explicit unit |
+| Outgoing `climate.set_temperature` calls to heads, aux climate devices, and display thermostats | Converted from Celsius into HA's configured display unit before the service call |
+| Display thermostat `min_temp` / `max_temp` clamping | Uses the values advertised by that display entity, after the managed setpoint has been converted into HA's display unit |
+
+For Fahrenheit installs, enter the Celsius equivalent in configuration.
+Common examples: `68°F = 20.0°C`, `72°F = 22.2°C`, and a `1°F`
+deadband is about `0.56°C`.
+
+---
+
 ## Path A — UI configuration
 
 ### 1. Spin up the UI sandbox (optional — for testing only)
@@ -73,7 +95,7 @@ preloaded so you have entities to point the flow at.
 | **Group** | `group_id` (permanent — short slug like `outdoor_unit_1`), friendly name, update interval |
 | **Compatibility** | Add up to one extra incompatible mode pair (heat↔cool and heat↔fan_only are blocked by default). Tick *Disable defaults* only if your hardware genuinely supports those combinations. |
 | **Zone menu** | Loop: pick `add_zone` to add another head, `edit_advanced_yaml` to drop into the YAML editor, or `finish` to review and create. |
-| → **Zone basics** | `zone_id`, friendly name, the upstream head's `climate` entity, default target temp, safety floor/ceiling, optional "always re-issue commands" toggle (for IR-controlled heads that may drift). |
+| → **Zone basics** | `zone_id`, friendly name, the upstream head's `climate` entity, default target temp in °C, safety floor/ceiling in °C, optional "always re-issue commands" toggle (for IR-controlled heads that may drift). |
 | → **Sensor fusion** | Strategy + the head temp source + any external room sensors / humidity sensor. |
 | → **Safety** | Floor & ceiling enforced regardless of user intent (independent of the basic-step defaults). |
 | → **Advanced (optional)** | Per-zone occupancy source, setback offsets, ceiling fan, auxiliary heat. Skippable. |
@@ -86,7 +108,7 @@ Settings → Devices & Services → *Multi-Split Zone Controller* → **Configur
 The options flow exposes:
 
 * **Group settings** — update interval.
-* **Per-zone settings** — safety floor / ceiling, setback offsets,
+* **Per-zone settings** — safety floor / ceiling in °C, setback offsets in °C,
   occupancy linger, fan/aux enable toggles.
 * **`__yaml__`** — opens HA's built-in YAML editor over the **entire
   entry**. Use this to reach knobs the basic forms don't expose
@@ -142,6 +164,7 @@ multisplit_zone_controller:
     - group_id: outdoor_unit_1
       name: "Outdoor Unit 1"
       update_interval: 15
+      min_changeover_dwell_minutes: 15.0  # set 0 to disable heat/cool dwell
 
       # heat<->cool and heat<->fan_only are treated as incompatible by
       # default. Add extra pairs here, or set
@@ -153,7 +176,8 @@ multisplit_zone_controller:
         - zone_id: living
           name: "Living Room"
           head_climate: climate.upstream_living_head
-          default_target_temperature: 21.0
+          default_target_temperature: 21.0  # °C, even on Fahrenheit HA installs
+          demand_deadband: 0.5              # °C; use 0.56 for a 1°F deadband
 
           fusion:
             strategy: external_preferred       # head_only | external_preferred | weighted
@@ -164,8 +188,8 @@ multisplit_zone_controller:
               - sensor.living_room_humidity
 
           safety:
-            min_temp: 8.0
-            max_temp: 32.0
+            min_temp: 8.0   # °C
+            max_temp: 32.0  # °C
 
           # Optional advanced sections — see design-overview.md for
           # the full list of supported keys.
@@ -225,3 +249,8 @@ will log the schema error and skip setup until you fix it.
 
 The full reference for every supported key lives in
 [`design-overview.md`](design-overview.md).
+
+Temperature-bearing entities may report in either °C or °F. The
+integration converts readings to Celsius internally, and converts
+commands back to Home Assistant's configured display unit at the
+service-call boundary.

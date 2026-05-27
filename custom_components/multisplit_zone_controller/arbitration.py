@@ -38,6 +38,9 @@ def _default_resolution() -> OccupancyResolution:
     )
 
 SAFETY_PRIORITY_BONUS = 1_000_000.0
+THERMAL_CHANGEOVER_MODES: frozenset[HVACMode] = frozenset(
+    {HVACMode.HEAT, HVACMode.COOL}
+)
 
 
 def score_zone(
@@ -52,9 +55,9 @@ def score_zone(
 
     Components:
 
-    - **Comfort**: absolute deviation from the active setpoint, reduced
-      by the fan apparent-temperature credit (``fan_comfort_offset``)
-      then weighted by occupancy via
+    - **Comfort**: directional demand from the active setpoint, reduced
+      by the zone's deadband and the fan apparent-temperature credit
+      (``fan_comfort_offset``), then weighted by occupancy via
       :func:`occupancy.occupancy_comfort_weight`. Unoccupied zones lose
       most (but not all) priority against an occupied zone with similar
       deviation; the fan credit is already zeroed out for unoccupied
@@ -67,15 +70,18 @@ def score_zone(
     if intent.hvac_mode is HVACMode.OFF:
         return 0.0
 
-    raw_deviation = 0.0
     control_temp = (
         comfort_temp_override
         if comfort_temp_override is not None
         else effective.temperature
     )
-    if intent.target_temperature is not None and control_temp is not None:
-        raw_deviation = abs(control_temp - intent.target_temperature)
-    comfort = max(0.0, raw_deviation - fan_comfort_offset)
+    demand = _mode_temperature_demand(
+        intent.hvac_mode,
+        control_temp,
+        intent.target_temperature,
+        zone.demand_deadband,
+    )
+    comfort = max(0.0, demand - fan_comfort_offset)
     comfort += humidity_priority(zone.humidity, intent.hvac_mode, effective.humidity)
     comfort *= occupancy_comfort_weight(occupancy, zone.setback)
 
@@ -83,6 +89,25 @@ def score_zone(
         return comfort + SAFETY_PRIORITY_BONUS
 
     return comfort
+
+
+def _mode_temperature_demand(
+    mode: HVACMode,
+    control_temp: float | None,
+    target_temp: float | None,
+    deadband: float,
+) -> float:
+    """Return the temperature demand this mode can actually satisfy."""
+    if target_temp is None or control_temp is None:
+        return 0.0
+
+    if mode is HVACMode.HEAT:
+        return max(0.0, target_temp - control_temp - deadband)
+    if mode is HVACMode.COOL:
+        return max(0.0, control_temp - target_temp - deadband)
+    if mode in (HVACMode.AUTO, HVACMode.DRY):
+        return max(0.0, abs(control_temp - target_temp) - deadband)
+    return 0.0
 
 
 def _modes_compatible(
@@ -137,6 +162,7 @@ def arbitrate(
     comfort_setpoints: Mapping[str, float | None] | None = None,
     fan_offsets: Mapping[str, float] | None = None,
     comfort_temps: Mapping[str, float | None] | None = None,
+    allowed_thermal_mode: HVACMode | None = None,
 ) -> GroupDecision:
     """Select the highest-priority compatible subset of zones for the group.
 
@@ -145,6 +171,11 @@ def arbitrate(
     valid subset whose total priority score is highest. Zones outside the
     winning subset are dispatched OFF with a ``block_reason``. Zones whose
     intent is already OFF pass through unchanged with score 0.
+
+    ``allowed_thermal_mode`` is an optional changeover-safety constraint used
+    by the coordinator. When set to ``HEAT`` or ``COOL``, subsets containing
+    the opposite thermal mode are excluded while non-thermal modes remain
+    eligible if otherwise compatible.
 
     For typical multi-split installs (2-5 heads per outdoor unit) the
     2^N enumeration is trivial. We cap at 16 zones per group as a safety
@@ -233,15 +264,18 @@ def arbitrate(
     ]
 
     best_subset: tuple[str, ...] = ()
-    best_score = -1.0
+    best_rank = (-1.0, -1)
     for r in range(len(active_zone_ids) + 1):
         for subset in combinations(active_zone_ids, r):
             modes = [intents[zid].hvac_mode for zid in subset]
             if not _modes_compatible(modes, group.incompatible_mode_pairs):
                 continue
+            if not _matches_allowed_thermal_mode(modes, allowed_thermal_mode):
+                continue
             subset_score = sum(scores[zid] for zid in subset)
-            if subset_score > best_score:
-                best_score = subset_score
+            rank = (subset_score, len(subset))
+            if rank > best_rank:
+                best_rank = rank
                 best_subset = subset
 
     winning_modes = {zid: intents[zid].hvac_mode for zid in best_subset}
@@ -302,3 +336,17 @@ def arbitrate(
             )
 
     return GroupDecision(group_id=group.group_id, zones=decisions)
+
+
+def _matches_allowed_thermal_mode(
+    modes: Iterable[HVACMode],
+    allowed_thermal_mode: HVACMode | None,
+) -> bool:
+    if allowed_thermal_mode is None:
+        return True
+    if allowed_thermal_mode not in THERMAL_CHANGEOVER_MODES:
+        return True
+    return all(
+        mode not in THERMAL_CHANGEOVER_MODES or mode is allowed_thermal_mode
+        for mode in modes
+    )

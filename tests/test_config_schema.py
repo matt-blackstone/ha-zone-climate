@@ -59,6 +59,7 @@ def test_parses_minimal_config() -> None:
     assert g.group_id == "g1"
     assert g.name == "Outdoor Unit 1"
     assert g.update_interval == timedelta(seconds=30)
+    assert g.min_changeover_dwell_minutes == 15.0
     assert frozenset({HVACMode.HEAT, HVACMode.COOL}) in g.incompatible_mode_pairs
 
     zones_by_id = {z.zone_id: z for z in g.zones}
@@ -69,10 +70,101 @@ def test_parses_minimal_config() -> None:
     assert living.fusion.external_temp_sensors[0].entity_id == "sensor.living_room_temp"
     assert living.safety.min_temp == 8.0
     assert living.safety.max_temp == 32.0
+    assert living.demand_deadband == 0.5
 
     bedroom = zones_by_id["bedroom"]
     assert bedroom.fusion.strategy is FusionStrategy.HEAD_ONLY
     assert bedroom.fusion.external_temp_sensors == ()
+
+
+def test_parses_zone_demand_deadband() -> None:
+    cfg = {
+        "groups": [
+            {
+                "group_id": "g1",
+                "name": "G1",
+                "zones": [
+                    {
+                        "zone_id": "z1",
+                        "name": "Z1",
+                        "head_climate": "climate.head_z1",
+                        "demand_deadband": 0.56,
+                    }
+                ],
+            }
+        ]
+    }
+
+    groups = parse_groups(cfg)
+
+    assert groups[0].zones[0].demand_deadband == 0.56
+
+
+def test_parses_group_changeover_dwell() -> None:
+    cfg = {
+        "groups": [
+            {
+                "group_id": "g1",
+                "name": "G1",
+                "min_changeover_dwell_minutes": 12.5,
+                "zones": [
+                    {
+                        "zone_id": "z1",
+                        "name": "Z1",
+                        "head_climate": "climate.head_z1",
+                    }
+                ],
+            }
+        ]
+    }
+
+    groups = parse_groups(cfg)
+
+    assert groups[0].min_changeover_dwell_minutes == 12.5
+
+
+def test_rejects_negative_changeover_dwell() -> None:
+    cfg = {
+        "groups": [
+            {
+                "group_id": "g1",
+                "name": "G1",
+                "min_changeover_dwell_minutes": -1.0,
+                "zones": [
+                    {
+                        "zone_id": "z1",
+                        "name": "Z1",
+                        "head_climate": "climate.head_z1",
+                    }
+                ],
+            }
+        ]
+    }
+
+    with pytest.raises(vol.Invalid):
+        parse_groups(cfg)
+
+
+def test_rejects_negative_demand_deadband() -> None:
+    cfg = {
+        "groups": [
+            {
+                "group_id": "g1",
+                "name": "G1",
+                "zones": [
+                    {
+                        "zone_id": "z1",
+                        "name": "Z1",
+                        "head_climate": "climate.head_z1",
+                        "demand_deadband": -0.1,
+                    }
+                ],
+            }
+        ]
+    }
+
+    with pytest.raises(vol.Invalid):
+        parse_groups(cfg)
 
 
 def test_sensor_string_shorthand_expanded() -> None:

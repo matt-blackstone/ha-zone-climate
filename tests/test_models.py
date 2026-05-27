@@ -32,6 +32,7 @@ def test_zone_config_defaults_are_sane() -> None:
     assert z.max_temp == 30.0
     assert z.target_temp_step == 0.5
     assert z.default_target_temperature == 21.0
+    assert z.demand_deadband == 0.5
     assert z.safety == SafetyLimits()
     assert z.fusion.strategy is FusionStrategy.HEAD_ONLY
 
@@ -45,6 +46,7 @@ def test_group_config_zone_lookup() -> None:
         zones=(z1, z2),
         update_interval=timedelta(seconds=30),
     )
+    assert g.min_changeover_dwell_minutes == 15.0
     assert g.zone("z1") is z1
     assert g.zone("z2") is z2
 

@@ -357,6 +357,7 @@ class ZoneConfig:
     max_temp: float = 30.0
     target_temp_step: float = 0.5
     default_target_temperature: float = 21.0
+    demand_deadband: float = 0.5
     always_assert_head_state: bool = False
 
 
@@ -393,6 +394,7 @@ class GroupConfig:
     )
     update_interval: timedelta = field(default_factory=lambda: timedelta(seconds=30))
     use_psychrometric_scoring: bool = False
+    min_changeover_dwell_minutes: float = 15.0
 
     def zone(self, zone_id: str) -> ZoneConfig:
         for z in self.zones:

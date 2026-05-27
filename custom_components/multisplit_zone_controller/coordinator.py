@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .arbitration import arbitrate
 from .aux_heat import AuxHeatRuntime, evaluate_aux_heat
 from .aux_heat_dispatch import AuxHeatDispatcher
+from .changeover import apply_changeover_dwell, dominant_thermal_mode
 from .comfort import apparent_temp_credit, fan_command_for
 from .display_dispatch import DisplayDispatcher, DisplaySyncStatus
 from .display_echo import DisplayEchoGuard
@@ -124,6 +125,8 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         self._last_dispatched_mode: dict[str, HVACMode] = {
             z.zone_id: HVACMode.OFF for z in group.zones
         }
+        self._last_group_thermal_mode: HVACMode | None = None
+        self._last_group_thermal_mode_started_at: datetime | None = None
         # Suppression cache for the post-dispatch incompatible-mode
         # invariant log. Keyed by ``(zone_a, mode_a, zone_b, mode_b)``
         # so a violation that flips between modes still gets logged
@@ -239,6 +242,19 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
             fan_offsets,
             comfort_temps,
         )
+        decision = apply_changeover_dwell(
+            self.group,
+            decision,
+            resolved,
+            effective_by_zone,
+            occupancy_by_zone,
+            comfort_setpoints,
+            fan_offsets,
+            comfort_temps,
+            self._last_group_thermal_mode,
+            self._last_group_thermal_mode_started_at,
+            now,
+        )
         decision = self._enrich_with_preconditioning(decision, effective_by_zone)
         decision = self._enrich_with_fan_commands(decision, effective_by_zone, occupancy_by_zone)
         decision = self._enrich_with_aux_heat(decision, effective_by_zone, now)
@@ -262,11 +278,23 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         # want to surface immediately. ERROR-level so it shows up red
         # in the UI's log panel.
         self._check_dispatch_invariants(decision)
+        self._remember_group_thermal_mode(decision, now)
 
         for zone_id, zone_decision in decision.zones.items():
             self._last_dispatched_mode[zone_id] = zone_decision.dispatched_mode
 
         return decision
+
+    def _remember_group_thermal_mode(
+        self,
+        decision: GroupDecision,
+        now: datetime,
+    ) -> None:
+        mode = dominant_thermal_mode(decision)
+        if mode is None or mode is self._last_group_thermal_mode:
+            return
+        self._last_group_thermal_mode = mode
+        self._last_group_thermal_mode_started_at = now
 
     def _check_dispatch_invariants(self, decision: GroupDecision) -> None:
         """Log a loud ERROR if arbitration emitted an incompatible

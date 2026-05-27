@@ -20,6 +20,34 @@ form just doesn't have screens for them yet (see the *UI roadmap* in
 
 ---
 
+## Temperature units and HA display mode
+
+Configuration is unit-stable: every temperature-like config value in
+YAML or the advanced YAML editor is **Celsius**, even if Home Assistant
+is set to display Fahrenheit. The same is true for values stored by
+the config flow.
+
+| Value family | Unit in config |
+|---|---|
+| Setpoints and limits: `default_target_temperature`, zone `min_temp` / `max_temp`, `safety.min_temp` / `safety.max_temp`, `aux_target_temperature`, `outdoor_lockout_temp` | °C |
+| Offsets and bands: `offset_heat`, `offset_cool`, `demand_deadband`, `calibration_offset`, `safety_floor_margin`, `deactivation_margin`, fan apparent-temperature credits | °C |
+| Rates: `default_heating_rate`, `default_cooling_rate`, learned heating/cooling rates | °C/min |
+| Time windows: `update_interval`, `settle_seconds`, `min_changeover_dwell_minutes`, `linger_minutes` | seconds or minutes as named |
+| Humidity values and weights | %RH or unitless weights, not temperature units |
+
+Home Assistant's display mode still matters at the entity boundary:
+`climate.*` temperature attributes from physical heads and display
+thermostats are interpreted in HA's configured display unit when they
+do not publish an explicit unit. Outbound `climate.set_temperature`
+calls are converted from the integration's Celsius value into HA's
+configured display unit before they are sent. For example, a managed
+target of `22.0` is sent as `71.6` to a Fahrenheit HA install.
+
+For quick conversion: `68°F = 20.0°C`, `72°F = 22.2°C`, and `1°F`
+of deadband is `0.56°C`.
+
+---
+
 ## Multi-sensor fusion
 
 The form lets you pick one head temperature source and one room
@@ -176,8 +204,8 @@ otherwise it goes `UNOCCUPIED` and setback engages.
 
 ```yaml
 setback:
-  setback_offset_heat: 4.0      # degrees below comfort during UNOCCUPIED HEAT
-  setback_offset_cool: 4.0      # degrees above comfort during UNOCCUPIED COOL
+  offset_heat: 4.0      # °C below comfort during UNOCCUPIED HEAT
+  offset_cool: 4.0      # °C above comfort during UNOCCUPIED COOL
   unoccupied_comfort_weight: 0.1  # 0..1
 ```
 
@@ -436,10 +464,12 @@ Inbound, T6 to managed zone:
 | `cool` | any | `cool` |
 | `em_heat` / emergency heat strings | any | `heat` |
 
-Setpoints are converted through Home Assistant's user-display unit, so
-Fahrenheit HA installs are safe. Outbound setpoints are clamped to the
-display thermostat's advertised `min_temp` / `max_temp`; the managed
-zone remains the source of truth.
+Display thermostats sit on the HA display-unit side of the boundary:
+if HA is configured for Fahrenheit, a T6 target of `75` is read as
+`23.9°C` internally, and a managed target of `23.9°C` is sent back to
+the display thermostat as `75`. Outbound setpoints are clamped to the
+display thermostat's advertised `min_temp` / `max_temp` in that same
+HA display unit; the managed zone remains the source of truth.
 
 ### Sensor contribution
 
@@ -480,7 +510,7 @@ zones:
       device_type: switch                   # or "climate"
       outdoor_temp_sensor: sensor.outdoor_temp
       outdoor_lockout_temp: -5.0            # °C
-      aux_target_temperature: 22.0          # only used for device_type: climate
+      aux_target_temperature: 22.0          # °C; only for device_type: climate
       safety_floor_margin: 1.5              # activate aux when room T is
                                             # within this many °C of safety floor
       deactivation_margin: 0.5              # extra °C above triggers required
@@ -571,7 +601,8 @@ a baseboard heater wrapped in a `generic_thermostat`).
 ## Humidity-aware scoring (Phase 7)
 
 The integration's arbitration scorer normally compares zones by
-their dry-bulb deviation from setpoint. Phase 7 adds two opt-in
+their directional temperature demand from setpoint after the zone's
+`demand_deadband` is removed. Phase 7 adds two opt-in
 humidity contributions that bias the score so latent-load zones
 get more compressor time when they need it.
 
@@ -795,10 +826,33 @@ priority score keeps its mode and the other is forced to `OFF`
 
 ---
 
+## Changeover dwell
+
+The coordinator protects a shared heat-pump group from rapid heat↔cool
+reversals. When arbitration wants to switch the group's dominant
+thermal mode, the previous heat/cool mode is pinned until the dwell
+window expires.
+
+```yaml
+groups:
+  - group_id: outdoor_unit_1
+    min_changeover_dwell_minutes: 15.0  # default; set 0 to disable
+```
+
+While locked, zones that wanted the opposite thermal mode are blocked
+with a `Changeover locked...` reason. Safety floor/ceiling overrides
+bypass the dwell so room protection still wins.
+
+This is a group-level guard for heat↔cool reversals only; it is not a
+full compressor minimum on-time/off-time controller.
+
+---
+
 ## Zone polish — `target_temp_step`
 
-The managed climate entity's setpoint UI defaults to 0.5 °C
-increments. Override per zone:
+The managed climate entity's setpoint UI defaults to 0.5 °C native
+increments. Home Assistant may render the equivalent Fahrenheit step
+in its UI when the user display unit is °F. Override per zone:
 
 ```yaml
 zones:
@@ -808,6 +862,31 @@ zones:
 
 Note that the *upstream head* must accept the finer resolution; a
 head with 1 °C internal resolution will silently round.
+
+---
+
+## Zone polish — `demand_deadband`
+
+Arbitration uses directional demand, not absolute distance from the
+setpoint:
+
+```text
+heat demand = max(0, target - current - demand_deadband)
+cool demand = max(0, current - target - demand_deadband)
+```
+
+`demand_deadband` is configured in °C. The default is `0.5 °C`, close
+to `1 °F`. If you want the Fahrenheit value exactly, configure `0.56`:
+
+```yaml
+zones:
+  - zone_id: bedroom
+    demand_deadband: 0.56
+```
+
+Inside the deadband a heat/cool request can stay dispatched when there
+is no competing demand, but it contributes `0` priority against zones
+that genuinely need heating or cooling.
 
 ---
 

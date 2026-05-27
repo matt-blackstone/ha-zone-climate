@@ -204,8 +204,15 @@ reference for every entity target).
 **See [`ADVANCED.md`](ADVANCED.md)** for a deep dive on the advanced
 features the form-driven UI doesn't cover yet — multi-sensor fusion,
 multi-source occupancy, pre-conditioning, fan/aux-heat tuning,
-humidity-aware scoring, and full psychrometric scoring — including
-worked examples for each.
+arbitration deadband, humidity-aware scoring, and full psychrometric
+scoring — including worked examples for each.
+
+**Temperature units:** configuration values are Celsius, even when
+Home Assistant is configured to display Fahrenheit. The integration
+normalises HA sensor/climate readings into Celsius for control math,
+then converts outgoing `climate.set_temperature` calls back into HA's
+configured display unit. See [`SETUP.md`](SETUP.md#temperature-units)
+for the exact boundary.
 
 Quick YAML snippet:
 
@@ -214,6 +221,7 @@ multisplit_zone_controller:
   groups:
     - group_id: outdoor_unit_1
       name: "Outdoor Unit 1"
+      min_changeover_dwell_minutes: 15.0  # set 0 to disable heat/cool dwell
       # heat<->cool and heat<->fan_only are treated as incompatible by
       # default; list any additional pairs here, or set
       # `disable_default_incompatible_mode_pairs: true` to opt out of
@@ -224,14 +232,15 @@ multisplit_zone_controller:
         - zone_id: living
           name: "Living Room"
           head_climate: climate.upstream_living_head
+          demand_deadband: 0.5  # °C; use 0.56 for a 1°F deadband
           fusion:
             strategy: external_preferred
             head_temp_sensor: sensor.upstream_living_head_temp
             external_temp_sensors:
               - sensor.living_room_thermometer
           safety:
-            min_temp: 8.0
-            max_temp: 32.0
+            min_temp: 8.0   # °C
+            max_temp: 32.0  # °C
 ```
 
 ## UI roadmap (known gaps)
@@ -285,7 +294,8 @@ Prioritised by user impact (highest first):
 - [ ] **Setback form** — expose `unoccupied_comfort_weight` (how
   much an unoccupied zone still influences arbitration scoring).
 - [ ] **Zone basics** — expose `target_temp_step` (managed-entity
-  setpoint resolution; defaults to 0.5 °C).
+  setpoint resolution; defaults to 0.5 °C) and `demand_deadband`
+  (arbitration demand threshold; defaults to 0.5 °C).
 - [ ] **Fusion advanced** — expose `head_weight`,
   `stale_after_seconds`, `occupancy_boost`.
 - [ ] **Group toggle** — expose `use_psychrometric_scoring`
@@ -302,7 +312,7 @@ mutated above, plus:
   `disable_default_incompatible_mode_pairs`.
 - [ ] Per-zone `name`, `default_target_temperature`, managed
   `min_temp`/`max_temp` (distinct from safety),
-  `always_assert_head_state`, `target_temp_step`.
+  `always_assert_head_state`, `target_temp_step`, `demand_deadband`.
 - [ ] Per-zone fusion strategy + sensor reassignment.
 - [ ] Per-zone occupancy `source_entity_id` / `kind` (today the
   flow can change linger but can't retarget the source).
@@ -341,51 +351,12 @@ Tracked here (rather than in the UI roadmap) because they're
 behavioural defaults that should ship enabled, not configuration
 exposed in a form.
 
-- [ ] **Changeover-valve thrash protection.** Arbitration is
-  stateless across ticks today and will happily flip the group's
-  dominant mode (HEAT ↔ COOL) every update interval if per-tick
-  scores oscillate around a compatibility boundary. Real heat-pump
-  reversing valves are mechanical and rated for a finite number
-  of cycles per hour; rapid changeover also stresses the
-  compressor (oil migration, liquid slugging risk).
-
-  Design sketch:
-
-  * New `GroupConfig` field `min_changeover_dwell_minutes`. **Default
-    needs research before shipping** — older single-stage compressor
-    guidance of 5-15 min may be overly conservative for modern
-    inverter-driven residential mini-splits. Survey real
-    manufacturer spec sheets (Mitsubishi M-Series, Daikin Aurora,
-    Fujitsu Halcyon, LG LMU, Senville, Pioneer, MrCool DIY) for
-    documented minimum *changeover* intervals (distinct from
-    minimum on-time / off-time cycle floors), cross-reference
-    ASHRAE / AHRI guidance, and check what value the HA
-    `generic_thermostat.min_cycle_duration` community has settled on
-    for similar concerns. Picking too high penalises legitimate
-    comfort transitions (cool morning → warm afternoon); too low
-    defeats the protection. Best guess pre-research: 2-5 min for
-    modern inverter multi-splits; 10-15 min for legacy single-stage
-    hardware. Probably exposed as a per-group setting so users with
-    older equipment can dial it up.
-  * Coordinator tracks the group's current dominant mode and the
-    timestamp of the last changeover.
-  * When `arbitrate()` proposes a winning subset whose dominant
-    mode differs from the previous tick's, either (a) re-run
-    arbitration with the previous dominant mode pinned until the
-    dwell window expires, or (b) only allow the flip when the new
-    winning score exceeds the previous-mode-pinned score by a
-    configurable hysteresis margin.
-  * Surface throttled zones via `block_reason: changeover_throttled`
-    and a new `sensor.<group>_changeover_locked` diagnostic so
-    users can see when the throttle is engaging.
-  * Safety-driven changeovers (floor/ceiling engaged) bypass the
-    throttle — protecting the room beats protecting the equipment
-    when both are at stake. Aux heat is already the heat-side
-    escape hatch; the cool side may need an equivalent
-    "emergency cool override" for high-temperature lockout.
-
-  Inline TODO marker lives at the top of `arbitrate()` in
-  `custom_components/multisplit_zone_controller/arbitration.py`.
+- [x] **Changeover-valve thrash protection.** The coordinator tracks
+  the group's last heat/cool dominant mode and holds that mode for
+  `min_changeover_dwell_minutes` before allowing an opposite heat↔cool
+  arbitration winner. Default is `15.0` minutes; set `0` to disable.
+  Safety overrides bypass the dwell, and throttled zones surface an
+  explicit `Changeover locked...` block reason.
 
 ## Feature roadmap
 
@@ -451,10 +422,11 @@ the fan column, not the mode column):
   Users can still also list separate `sensor.*` entities under
   `external_temp_sensors:` for different per-source weighting.
 - **Setpoint range clamping:** when the managed setpoint falls
-  outside the T6's `min_temp` / `max_temp` (typically 50-99 °F),
-  clamp on the T6 (it shows the clamped value) and surface the
-  truth via the managed entity's `status_message` so the actual
-  state is visible in HA's own UI.
+  outside the T6's `min_temp` / `max_temp` (reported by Home Assistant
+  in the current HA display unit, typically 50-99 °F on Fahrenheit
+  installs), clamp on the T6 after unit conversion and surface the
+  truth via the managed entity's `status_message` so the actual state
+  is visible in HA's own UI.
 - **Conflict resolution:** last writer wins, with a ~2 s
   echo-ignore window. The physical action naturally arrives
   later than a mobile-UI tap, so this favours the person at
@@ -523,7 +495,7 @@ zones:
 ## Releasing
 
 The integration is distributed via HACS as a custom repository. Cutting
-a new release is two files + two git commands.
+a new release is two metadata files + two git commands.
 
 ### Pre-flight
 
@@ -544,8 +516,8 @@ a new release is two files + two git commands.
   issues (hacs.json shape, version field presence). The HACS validator
   needs a GitHub token because it queries the GitHub API for repo
   metadata and brand registration; hassfest needs no credentials.
-* `custom_components/multisplit_zone_controller/manifest.json` →
-  bump `"version"` to the new semver.
+* `custom_components/multisplit_zone_controller/manifest.json` and
+  `pyproject.toml` → bump `"version"` to the new semver in both files.
 * `hacs.json` → no version bump needed (HACS reads the version from
   the manifest), but **do** bump the `"homeassistant"` floor here
   if the release uses a newly-required HA API. Keep the two values
@@ -569,17 +541,18 @@ HACS picks up new releases within a few minutes of the tag landing
 on GitHub. Users on existing installs will see *Update available* in
 their HACS UI on the next refresh cycle.
 
-### Three sources of truth, kept in sync
+### Version sources, kept in sync
 
 | File | What it advertises | Used by |
 |---|---|---|
 | `manifest.json` `"version"` | The integration version Home Assistant reports in *Settings → Devices & Services → ⋮ → System info* and in `hass diagnostics`. | Home Assistant Core, HACS update detection. |
+| `pyproject.toml` `"version"` | The local package/project version used by Python tooling. Keep it aligned with the manifest. | Local development tooling. |
 | `hacs.json` `"homeassistant"` | Minimum HA version HACS will allow the integration to be installed on. | HACS catalog filter. |
 | `INSTALL.md` *Prerequisites* table | Human-readable install requirements. | End users reading the docs. |
 
-A version bump should normally only touch `manifest.json`. The HA
-floor only moves when you start using a new HA API; when it does,
-update all three in the same commit.
+A version bump should normally touch only `manifest.json` and
+`pyproject.toml`. The HA floor only moves when you start using a new
+HA API; when it does, update all affected files in the same commit.
 
 ### What if there's never been a release yet?
 

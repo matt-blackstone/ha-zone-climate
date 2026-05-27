@@ -13,7 +13,9 @@ and [`ADVANCED.md`](ADVANCED.md) for the full feature reference.
 > **Display thermostats:** v0.2.0 adds optional physical display
 > thermostat mirroring, validated first with Honeywell T6 Pro Z-Wave
 > devices. It is opt-in per zone through `display_thermostats:` and
-> does not change existing zones unless configured.
+> does not change existing zones unless configured. Configuration
+> temperature values remain Celsius; the integration converts to/from
+> Home Assistant's configured display unit at the entity boundary.
 
 ---
 

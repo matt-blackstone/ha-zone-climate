@@ -28,6 +28,7 @@ from .const import (
     CONF_AUX_TARGET_TEMPERATURE,
     CONF_CALIBRATION_OFFSET,
     CONF_DEFAULT_TARGET,
+    CONF_DEMAND_DEADBAND,
     CONF_DISPLAY_ALWAYS_ASSERT,
     CONF_DISPLAY_AUTO_FAN_MODE,
     CONF_DISPLAY_CIRCULATE_FAN_MODE,
@@ -69,6 +70,7 @@ from .const import (
     CONF_HEAD_WEIGHT,
     CONF_INCOMPATIBLE_MODE_PAIRS,
     CONF_MAX_TEMP,
+    CONF_MIN_CHANGEOVER_DWELL_MINUTES,
     CONF_MIN_TEMP,
     CONF_NAME,
     CONF_OCCUPANCY,
@@ -366,6 +368,9 @@ ZONE_SCHEMA = vol.Schema(
         vol.Optional(CONF_MAX_TEMP, default=30.0): vol.Coerce(float),
         vol.Optional(CONF_TARGET_TEMP_STEP, default=0.5): vol.Coerce(float),
         vol.Optional(CONF_DEFAULT_TARGET, default=21.0): vol.Coerce(float),
+        vol.Optional(CONF_DEMAND_DEADBAND, default=0.5): vol.All(
+            vol.Coerce(float), vol.Range(min=0.0)
+        ),
         vol.Optional(CONF_ALWAYS_ASSERT_HEAD_STATE, default=False): bool,
     }
 )
@@ -402,6 +407,9 @@ GROUP_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_DISABLE_DEFAULT_INCOMPATIBLE_MODE_PAIRS, default=False
         ): bool,
+        vol.Optional(CONF_MIN_CHANGEOVER_DWELL_MINUTES, default=15.0): vol.All(
+            vol.Coerce(float), vol.Range(min=0.0)
+        ),
         vol.Optional(CONF_USE_PSYCHROMETRIC_SCORING, default=False): bool,
         vol.Required(CONF_ZONES): vol.All([ZONE_SCHEMA], vol.Length(min=1)),
     }
@@ -482,6 +490,7 @@ def _build_group(raw: dict[str, Any]) -> GroupConfig:
         incompatible_mode_pairs=merged_pairs,
         update_interval=timedelta(seconds=raw[CONF_UPDATE_INTERVAL]),
         use_psychrometric_scoring=raw[CONF_USE_PSYCHROMETRIC_SCORING],
+        min_changeover_dwell_minutes=raw[CONF_MIN_CHANGEOVER_DWELL_MINUTES],
     )
 
 
@@ -625,5 +634,6 @@ def _build_zone(raw: dict[str, Any]) -> ZoneConfig:
         max_temp=raw[CONF_MAX_TEMP],
         target_temp_step=raw[CONF_TARGET_TEMP_STEP],
         default_target_temperature=raw[CONF_DEFAULT_TARGET],
+        demand_deadband=raw[CONF_DEMAND_DEADBAND],
         always_assert_head_state=raw[CONF_ALWAYS_ASSERT_HEAD_STATE],
     )

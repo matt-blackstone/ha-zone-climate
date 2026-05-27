@@ -21,6 +21,7 @@ multisplit_zone_controller:
     - group_id: outdoor_unit
       name: "Outdoor Unit"
       update_interval: 5
+      min_changeover_dwell_minutes: 0
       incompatible_mode_pairs:
         - ["heat", "cool"]
       zones:

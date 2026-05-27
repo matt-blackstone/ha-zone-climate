@@ -75,10 +75,39 @@ def test_score_off_zone_is_zero() -> None:
     assert score_zone(z, _intent("z1", HVACMode.OFF), _eff(20.0)) == 0.0
 
 
-def test_score_uses_absolute_temperature_deviation() -> None:
+def test_score_uses_directional_heat_cool_demand_with_deadband() -> None:
     z = _zone("z1")
+    heat_score = score_zone(
+        z, _intent("z1", HVACMode.HEAT, target=22.0), _eff(18.0)
+    )
+    cool_score = score_zone(
+        z, _intent("z1", HVACMode.COOL, target=22.0), _eff(25.0)
+    )
+    satisfied_heat = score_zone(
+        z, _intent("z1", HVACMode.HEAT, target=22.0), _eff(25.0)
+    )
+    satisfied_cool = score_zone(
+        z, _intent("z1", HVACMode.COOL, target=22.0), _eff(19.0)
+    )
+
+    assert heat_score == 3.5
+    assert cool_score == 2.5
+    assert satisfied_heat == 0.0
+    assert satisfied_cool == 0.0
+
+
+def test_score_honors_custom_deadband() -> None:
+    z = ZoneConfig(
+        zone_id="z1",
+        name="Z1",
+        head_climate_entity="climate.h1",
+        fusion=FusionConfig(),
+        demand_deadband=1.0,
+    )
+
     score = score_zone(z, _intent("z1", HVACMode.HEAT, target=22.0), _eff(18.0))
-    assert score == 4.0
+
+    assert score == 3.0
 
 
 def test_safety_override_dominates_score() -> None:
@@ -140,6 +169,66 @@ def test_incompatible_modes_winner_takes_higher_score() -> None:
     assert decision.zones["z2"].dispatched_mode is HVACMode.OFF
     assert decision.zones["z2"].blocked is True
     assert "Z1" in (decision.zones["z2"].block_reason or "")
+
+
+def test_satisfied_cool_zones_do_not_outvote_real_heat_demand() -> None:
+    """Regression for satisfied cooling zones summing into false demand."""
+    g = _group(
+        _zone("cool1"),
+        _zone("cool2"),
+        _zone("heat"),
+        incompatible=[(HVACMode.HEAT, HVACMode.COOL)],
+    )
+    intents = {
+        "cool1": _intent("cool1", HVACMode.COOL, target=24.0),
+        "cool2": _intent("cool2", HVACMode.COOL, target=24.0),
+        "heat": _intent("heat", HVACMode.HEAT, target=22.0),
+    }
+    eff = {
+        "cool1": _eff(21.5),
+        "cool2": _eff(21.5),
+        "heat": _eff(18.0),
+    }
+
+    decision = arbitrate(g, intents, eff)
+
+    assert decision.zones["cool1"].priority_score == 0.0
+    assert decision.zones["cool2"].priority_score == 0.0
+    assert decision.zones["heat"].priority_score == 3.5
+    assert decision.zones["heat"].dispatched_mode is HVACMode.HEAT
+    assert decision.zones["cool1"].blocked is True
+    assert decision.zones["cool2"].blocked is True
+
+
+def test_zero_demand_active_zone_stays_dispatched_without_conflict() -> None:
+    """A satisfied request should not be marked blocked by the empty subset."""
+    g = _group(_zone("z1"))
+    intents = {"z1": _intent("z1", HVACMode.COOL, target=22.0)}
+    eff = {"z1": _eff(22.25)}
+
+    decision = arbitrate(g, intents, eff)
+
+    assert decision.zones["z1"].priority_score == 0.0
+    assert decision.zones["z1"].dispatched_mode is HVACMode.COOL
+    assert decision.zones["z1"].blocked is False
+
+
+def test_allowed_thermal_mode_excludes_opposite_changeover_mode() -> None:
+    g = _group(
+        _zone("cool"),
+        _zone("heat"),
+        incompatible=[(HVACMode.HEAT, HVACMode.COOL)],
+    )
+    intents = {
+        "cool": _intent("cool", HVACMode.COOL, target=24.0),
+        "heat": _intent("heat", HVACMode.HEAT, target=22.0),
+    }
+    eff = {"cool": _eff(21.5), "heat": _eff(18.0)}
+
+    decision = arbitrate(g, intents, eff, allowed_thermal_mode=HVACMode.COOL)
+
+    assert decision.zones["cool"].dispatched_mode is HVACMode.COOL
+    assert decision.zones["heat"].dispatched_mode is HVACMode.OFF
 
 
 def test_heat_and_fan_only_are_treated_as_incompatible() -> None:
@@ -207,7 +296,7 @@ def test_three_way_arbitration_picks_best_subset() -> None:
         _zone("z3"),
         incompatible=[(HVACMode.HEAT, HVACMode.COOL)],
     )
-    # Two heat zones with combined deviation 6 should beat one cool zone of 5.
+    # Two heat zones with combined demand 5 should beat one cool zone of 4.5.
     intents = {
         "z1": _intent("z1", HVACMode.HEAT, target=22.0),
         "z2": _intent("z2", HVACMode.HEAT, target=22.0),
@@ -276,7 +365,7 @@ def test_fan_offset_reduces_comfort_score() -> None:
         "z1": OccupancyResolution(OccupancyState.CONFIRMED, 1.0, ()),
         "z2": OccupancyResolution(OccupancyState.CONFIRMED, 1.0, ()),
     }
-    # z2's fan offers 1.5°C of credit, dropping its deviation to 0.5 vs z1's 2.
+    # z2's fan offers 1.5°C of credit, dropping its demand to 0 vs z1's 1.5.
     fan_offsets = {"z1": 0.0, "z2": 1.5}
     decision = arbitrate(g, intents, eff, occupancy, None, fan_offsets)
     assert decision.zones["z1"].dispatched_mode is HVACMode.HEAT
@@ -397,8 +486,8 @@ def test_three_zones_heat_cool_fan_only_never_all_dispatched() -> None:
         "z_cool": _intent("z_cool", HVACMode.COOL, target=22.0),
         "z_fan": _intent("z_fan", HVACMode.FAN_ONLY, target=22.0),
     }
-    # HEAT zone: 7°C below target → score 7. COOL/FAN_ONLY zones each
-    # 1°C off target → combined score 2. {HEAT} wins.
+    # HEAT zone: 7°C below target → score 6.5. COOL zone is 1°C above
+    # target → score 0.5; FAN_ONLY has no temperature demand. {HEAT} wins.
     eff = {
         "z_heat": _eff(15.0),
         "z_cool": _eff(23.0),
@@ -441,8 +530,9 @@ def test_three_zones_heat_cool_fan_only_picks_compatible_pair_when_better() -> N
         "z_cool": _intent("z_cool", HVACMode.COOL, target=22.0),
         "z_fan": _intent("z_fan", HVACMode.FAN_ONLY, target=22.0),
     }
-    # HEAT zone: 0.5°C below target → score 0.5. COOL+FAN_ONLY each
-    # 5°C above target → combined score 10. {COOL, FAN_ONLY} wins.
+    # HEAT zone: 0.5°C below target → inside deadband. COOL is 5°C above
+    # target → score 4.5; FAN_ONLY has no temperature demand but can join
+    # the compatible COOL subset. {COOL, FAN_ONLY} wins.
     eff = {
         "z_heat": _eff(21.5),
         "z_cool": _eff(27.0),
