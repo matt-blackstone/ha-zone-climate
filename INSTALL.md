@@ -10,6 +10,11 @@ and [`ADVANCED.md`](ADVANCED.md) for the full feature reference.
 > integration is `local_push` and only talks to your existing HA
 > entities.
 
+> **Display thermostats:** v0.2.0 adds optional physical display
+> thermostat mirroring, validated first with Honeywell T6 Pro Z-Wave
+> devices. It is opt-in per zone through `display_thermostats:` and
+> does not change existing zones unless configured.
+
 ---
 
 ## Prerequisites
@@ -64,7 +69,7 @@ After install, you'll see a **HACS** entry in the HA sidebar.
 1. Open **HACS** in the sidebar.
 2. Click the **⋮** (three-dot menu) in the top-right.
 3. Select **Custom repositories**.
-4. **Repository:** paste `https://github.com/mblackstone/ha-zone-climate`
+4. **Repository:** paste `https://github.com/matt-blackstone/ha-zone-climate`
 5. **Type:** `Integration`
 6. Click **Add**.
 
@@ -94,7 +99,7 @@ specific tagged release without going through HACS's UI.
 
 ### Step 1 — Download the release
 
-1. Open the project's [Releases page](https://github.com/mblackstone/ha-zone-climate/releases).
+1. Open the project's [Releases page](https://github.com/matt-blackstone/ha-zone-climate/releases).
 2. Download the source zip for the release you want (or the
    `Latest` tag if you want the newest tagged build).
 
@@ -146,7 +151,7 @@ back upstream.
 
 ```bash
 cd /path/to/ha/config/custom_components/
-git clone https://github.com/mblackstone/ha-zone-climate.git tmp-msz
+git clone https://github.com/matt-blackstone/ha-zone-climate.git tmp-msz
 cp -r tmp-msz/custom_components/multisplit_zone_controller .
 rm -rf tmp-msz
 ```
@@ -155,7 +160,7 @@ Or, if you want a live working copy you can `git pull` to update:
 
 ```bash
 # Clone the repo somewhere you control:
-git clone https://github.com/mblackstone/ha-zone-climate.git ~/code/ha-msz
+git clone https://github.com/matt-blackstone/ha-zone-climate.git ~/code/ha-msz
 
 # Symlink the integration directory into HA:
 ln -s ~/code/ha-msz/custom_components/multisplit_zone_controller \
@@ -263,7 +268,7 @@ Then restart HA.
 
 Tagged releases include release notes describing breaking changes,
 schema additions, and new diagnostic sensors. Check the
-[Releases page](https://github.com/mblackstone/ha-zone-climate/releases)
+[Releases page](https://github.com/matt-blackstone/ha-zone-climate/releases)
 before any version jump that crosses a minor (e.g. `0.1.x → 0.2.0`).
 
 ---
@@ -376,7 +381,7 @@ for the full behaviour.
 ### Filing a bug
 
 Open an issue at the
-[issue tracker](https://github.com/mblackstone/ha-zone-climate/issues).
+[issue tracker](https://github.com/matt-blackstone/ha-zone-climate/issues).
 Include:
 
 * Home Assistant version (Settings → About → version line).

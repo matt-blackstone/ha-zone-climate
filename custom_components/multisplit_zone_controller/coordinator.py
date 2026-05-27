@@ -18,6 +18,9 @@ from .arbitration import arbitrate
 from .aux_heat import AuxHeatRuntime, evaluate_aux_heat
 from .aux_heat_dispatch import AuxHeatDispatcher
 from .comfort import apparent_temp_credit, fan_command_for
+from .display_dispatch import DisplayDispatcher, DisplaySyncStatus
+from .display_echo import DisplayEchoGuard
+from .display_listener import DisplayListener
 from .dispatch import HeadDispatcher
 from .fan_proxy import FanDispatcher
 from .invariants import incompatible_mode_violations
@@ -70,6 +73,7 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         dispatcher: HeadDispatcher | None = None,
         fan_dispatcher: FanDispatcher | None = None,
         aux_dispatcher: AuxHeatDispatcher | None = None,
+        display_dispatcher: DisplayDispatcher | None = None,
         config_entry: object | None = None,
     ) -> None:
         # ``config_entry`` is optional: YAML setup has no entry while
@@ -97,6 +101,11 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         self._dispatcher = dispatcher or HeadDispatcher(hass)
         self._fan_dispatcher = fan_dispatcher or FanDispatcher(hass)
         self._aux_dispatcher = aux_dispatcher or AuxHeatDispatcher(hass)
+        self._display_echo_guard = DisplayEchoGuard()
+        self._display_dispatcher = display_dispatcher or DisplayDispatcher(
+            hass,
+            self._display_echo_guard,
+        )
         self._aux_runtimes: dict[str, AuxHeatRuntime] = {
             z.zone_id: AuxHeatRuntime(z.aux_heat) for z in group.zones
         }
@@ -123,6 +132,14 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         # Suppression cache for the one-time startup capability
         # warning, keyed by ``(zone_id, missing_mode)``.
         self._capability_warned: set[tuple[str, str]] = set()
+        self._display_listener = DisplayListener(
+            hass,
+            group,
+            self._display_echo_guard,
+            lambda zone_id: self.intents[zone_id],
+            self.set_intent,
+        )
+        self._display_listener.attach()
 
     def set_intent(self, intent: ZoneIntent) -> None:
         """Replace the stored intent for one zone.
@@ -134,6 +151,18 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         if intent.zone_id not in self._zones_by_id:
             raise KeyError(intent.zone_id)
         self.intents[intent.zone_id] = intent
+
+    def detach_display_listeners(self) -> None:
+        """Detach physical display thermostat state listeners."""
+        self._display_listener.detach()
+
+    def display_sync_status(
+        self,
+        zone_id: str,
+        entity_id: str,
+    ) -> DisplaySyncStatus:
+        """Return diagnostic sync status for one display thermostat."""
+        return self._display_dispatcher.status(zone_id, entity_id)
 
     async def _async_update_data(self) -> GroupDecision:
         now = datetime.now(tz=timezone.utc)
@@ -189,7 +218,10 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
 
         fan_offsets = {
             z.zone_id: self._fan_offset_for(
-                z, resolved[z.zone_id], effective_by_zone[z.zone_id], occupancy_by_zone[z.zone_id].state
+                z,
+                resolved[z.zone_id],
+                effective_by_zone[z.zone_id],
+                occupancy_by_zone[z.zone_id].state,
             )
             for z in self.group.zones
         }
@@ -222,6 +254,7 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
         await self._dispatcher.apply(self._zones_by_id, decision)
         await self._fan_dispatcher.apply(self._zones_by_id, decision)
         await self._aux_dispatcher.apply(self._zones_by_id, decision)
+        await self._display_dispatcher.apply(self._zones_by_id, self.intents)
 
         # Post-dispatch invariant: if the arbiter ever produces a
         # decision where two zones run in mutually-incompatible modes,
@@ -536,14 +569,30 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
     def _fuse_zone(self, zone: ZoneConfig) -> EffectiveReadings:
         stale_after = zone.fusion.stale_after_seconds
         head_temp = self._read_optional(zone.fusion.head_temp_sensor, stale_after)
-        head_hum = self._read_optional(zone.fusion.head_humidity_sensor, stale_after)
-        ext_temps = tuple(
-            self._read_ref(ref, stale_after)
-            for ref in zone.fusion.external_temp_sensors
+        head_hum = self._read_humidity_optional(
+            zone.fusion.head_humidity_sensor,
+            stale_after,
         )
+        temp_refs = list(zone.fusion.external_temp_sensors)
+        humidity_refs = list(zone.fusion.external_humidity_sensors)
+        for display in zone.display_thermostats:
+            if display.contribute_temperature:
+                temp_refs.append(
+                    SensorRef(
+                        entity_id=display.entity_id,
+                        weight=display.temperature_weight,
+                    )
+                )
+            if display.contribute_humidity:
+                humidity_refs.append(
+                    SensorRef(
+                        entity_id=display.entity_id,
+                        weight=display.humidity_weight,
+                    )
+                )
+        ext_temps = tuple(self._read_ref(ref, stale_after) for ref in temp_refs)
         ext_hums = tuple(
-            self._read_ref(ref, stale_after)
-            for ref in zone.fusion.external_humidity_sensors
+            self._read_humidity_ref(ref, stale_after) for ref in humidity_refs
         )
         if zone.fusion.strategy is FusionStrategy.OCCUPANCY_WEIGHTED:
             ext_temps = self._apply_occupancy_boost(zone, ext_temps)
@@ -592,6 +641,16 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
             return None
         return self._read_ref(SensorRef(entity_id=entity_id), stale_after_seconds)
 
+    def _read_humidity_optional(
+        self, entity_id: str | None, stale_after_seconds: float | None
+    ) -> SensorReading | None:
+        if entity_id is None:
+            return None
+        return self._read_humidity_ref(
+            SensorRef(entity_id=entity_id),
+            stale_after_seconds,
+        )
+
     def _read_ref(
         self, ref: SensorRef, stale_after_seconds: float | None
     ) -> SensorReading:
@@ -604,6 +663,29 @@ class GroupCoordinator(DataUpdateCoordinator[GroupDecision]):
                 calibration_offset=ref.calibration_offset,
             )
         value = _coerce_state_value(state, hass_temperature_unit(self.hass))
+        if value is not None and stale_after_seconds is not None and _is_stale(
+            state, stale_after_seconds
+        ):
+            value = None
+        return SensorReading(
+            entity_id=ref.entity_id,
+            value=value,
+            weight=ref.weight,
+            calibration_offset=ref.calibration_offset,
+        )
+
+    def _read_humidity_ref(
+        self, ref: SensorRef, stale_after_seconds: float | None
+    ) -> SensorReading:
+        state = self.hass.states.get(ref.entity_id)
+        if state is None:
+            return SensorReading(
+                entity_id=ref.entity_id,
+                value=None,
+                weight=ref.weight,
+                calibration_offset=ref.calibration_offset,
+            )
+        value = _coerce_humidity_value(state)
         if value is not None and stale_after_seconds is not None and _is_stale(
             state, stale_after_seconds
         ):
@@ -660,6 +742,24 @@ def _coerce_state_value(
     ``temperature_unit`` attribute).
     """
     return state_temperature_in_celsius(state, default_unit)
+
+
+def _coerce_humidity_value(state: State) -> float | None:
+    """Interpret an HA state object as a relative-humidity float."""
+    if state is None:
+        return None
+    attr_humidity = state.attributes.get("current_humidity")
+    if attr_humidity is not None:
+        try:
+            return float(attr_humidity)
+        except (TypeError, ValueError):
+            return None
+    if state.state in ("unknown", "unavailable", None, ""):
+        return None
+    try:
+        return float(state.state)
+    except (TypeError, ValueError):
+        return None
 
 
 def by_group_id(

@@ -210,6 +210,32 @@ class AuxHeatConfig:
 
 
 @dataclass(frozen=True)
+class DisplayThermostatConfig:
+    """Per-zone physical display thermostat mirror.
+
+    A display thermostat is a wall-mounted UI for a managed zone. It is
+    deliberately not the actuator; the zone's ``head_climate_entity`` still
+    receives the real mini-split commands. Defaults are tuned for the
+    Honeywell T6 Pro Z-Wave surface observed through Home Assistant:
+    ``hvac_modes == [off, heat, cool]`` and fan modes like ``Auto low`` /
+    ``Low`` / ``Circulation``.
+    """
+
+    entity_id: str
+    sync_setpoint: bool = True
+    sync_mode: bool = True
+    sync_fan_mode: bool = True
+    always_assert: bool = False
+    contribute_temperature: bool = True
+    contribute_humidity: bool = True
+    temperature_weight: float = 0.3
+    humidity_weight: float = 0.3
+    auto_fan_mode: str = "Auto low"
+    fan_only_fan_mode: str = "Low"
+    circulate_fan_mode: str = "Circulation"
+
+
+@dataclass(frozen=True)
 class AuxHeatDecision:
     """Output of the pure aux-heat evaluator (without transition timing)."""
 
@@ -325,6 +351,7 @@ class ZoneConfig:
     pre_conditioning: PreConditioningConfig = field(default_factory=PreConditioningConfig)
     fan: FanConfig = field(default_factory=FanConfig)
     aux_heat: AuxHeatConfig = field(default_factory=AuxHeatConfig)
+    display_thermostats: tuple[DisplayThermostatConfig, ...] = ()
     humidity: HumidityPolicy = field(default_factory=HumidityPolicy)
     min_temp: float = 16.0
     max_temp: float = 30.0

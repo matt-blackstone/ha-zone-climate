@@ -376,6 +376,94 @@ or "guest mode" overrides.
 
 ---
 
+## Display thermostats (Phase 9)
+
+A physical display thermostat is a wall-mounted UI mirror for a managed
+zone. It is **not** the actuator: the mini-split head configured under
+`head_climate` still receives the real HVAC commands, while the wall
+thermostat displays intent and accepts quick setpoint/mode/fan edits.
+
+The first validated device profile is the Honeywell T6 Pro Z-Wave via
+`zwave_js`, observed in Home Assistant with:
+
+* `hvac_modes: ["off", "heat", "cool"]`
+* `fan_modes: ["Auto low", "Low", "Circulation"]`
+* `current_temperature`, `current_humidity`, and `temperature` attributes
+
+Configure the T6 for no-load operation, or wire it so it cannot directly
+energize HVAC equipment. Disable device-side schedules if Home Assistant
+should be the only scheduler.
+
+```yaml
+zones:
+  - zone_id: bedroom
+    head_climate: climate.bedroom_mini_split_head
+    display_thermostats:
+      - entity_id: climate.bedroom_t6_thermostat
+        sync_setpoint: true
+        sync_mode: true
+        sync_fan_mode: true
+        always_assert: false
+        contribute_temperature: true
+        contribute_humidity: true
+        temperature_weight: 0.3
+        humidity_weight: 0.3
+        auto_fan_mode: "Auto low"
+        fan_only_fan_mode: "Low"
+        circulate_fan_mode: "Circulation"
+```
+
+### Mode mapping
+
+Outbound, managed zone to T6:
+
+| Managed mode | T6 mode | T6 fan |
+|---|---|---|
+| `off` | `off` | `Auto low` |
+| `heat` | `heat` | `Auto low` |
+| `cool` | `cool` | `Auto low` |
+| `fan_only` | `off` | `Low` |
+| `dry` | `cool` | `Auto low` |
+| `auto` | `auto` if supported; otherwise sync status becomes `stale` | `Auto low` |
+
+Inbound, T6 to managed zone:
+
+| T6 mode | T6 fan | Managed mode |
+|---|---|---|
+| `off` | `Auto low` / `auto` | `off` |
+| `off` | `Low` / `Circulation` / `on` / `circulate` | `fan_only` |
+| `heat` | any | `heat` |
+| `cool` | any | `cool` |
+| `em_heat` / emergency heat strings | any | `heat` |
+
+Setpoints are converted through Home Assistant's user-display unit, so
+Fahrenheit HA installs are safe. Outbound setpoints are clamped to the
+display thermostat's advertised `min_temp` / `max_temp`; the managed
+zone remains the source of truth.
+
+### Sensor contribution
+
+When `contribute_temperature` or `contribute_humidity` is enabled, the
+coordinator treats the thermostat as a low-weight external sensor. The
+defaults (`0.3`) are intentionally lower than a fast room sensor because
+Z-Wave thermostats can update slowly.
+
+### Diagnostics
+
+Each display gets a diagnostic sensor named from the zone and display
+entity. Its state is:
+
+| State | Meaning |
+|---|---|
+| `synced` | Last mirror pass succeeded. |
+| `stale` | The display could not represent part of the requested intent, usually an unsupported mode such as `auto` on a T6 that only exposes `off` / `heat` / `cool`. |
+| `unreachable` | The display entity is missing/unavailable or a service call failed. |
+
+Attributes include the desired display HVAC mode, fan mode, target,
+sent/clamped target, `last_success`, and `last_error`.
+
+---
+
 ## Aux heat advanced (Phase 6)
 
 The form exposes `enabled`, `device_type`, `device_entity_id`,

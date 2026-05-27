@@ -29,6 +29,7 @@ LIVING = "climate.living_zone"
 OFFICE = "climate.office_zone"
 HEAD_LIVING = "climate.fake_head_living"
 HEAD_OFFICE = "climate.fake_head_office"
+DISPLAY_LIVING = "climate.fake_display_living"
 AUX_SWITCH = "switch.fake_office_aux"
 
 # The coordinator runs every 5s in the test config; +2s buffer.
@@ -105,6 +106,14 @@ def test_aux_binary_sensor_registered(ha: HAClient) -> None:
     assert state["state"] in ("on", "off")
 
 
+def test_display_sync_sensor_registered(ha: HAClient) -> None:
+    state = ha.get_state(
+        "sensor.living_zone_display_thermostat_sync_status_climate_fake_display_living"
+    )
+    assert state is not None
+    assert state["state"] in ("unknown", "synced", "stale", "unreachable")
+
+
 # ---------------------------------------------------------------------------
 # Phase 1 — basic dispatch
 # ---------------------------------------------------------------------------
@@ -135,6 +144,19 @@ def test_basic_dispatch_heat(ha: HAClient) -> None:
     assert ha.get_climate_target_celsius(LIVING) == pytest.approx(24.0, abs=0.3)
     assert ha.get_climate_target_celsius(HEAD_LIVING) == pytest.approx(24.0, abs=0.3)
 
+    display = ha.wait_for_state(
+        DISPLAY_LIVING,
+        lambda s: s["state"] == "heat"
+        and s["attributes"]["fan_mode"] == "Auto low"
+        and s["attributes"]["temperature"] == pytest.approx(
+            expected_target,
+            abs=0.5,
+        ),
+        timeout=15.0,
+        description="display thermostat mirrors HEAT setpoint",
+    )
+    assert display["state"] == "heat"
+
 
 def test_off_dispatches_off(ha: HAClient) -> None:
     """Turning the managed climate OFF propagates OFF to the head."""
@@ -150,6 +172,52 @@ def test_off_dispatches_off(ha: HAClient) -> None:
         lambda s: s["state"] == "off",
         timeout=15.0,
         description="head dispatched OFF",
+    )
+    ha.wait_for_state(
+        DISPLAY_LIVING,
+        lambda s: s["state"] == "off"
+        and s["attributes"]["fan_mode"] == "Auto low",
+        timeout=15.0,
+        description="display thermostat mirrors OFF",
+    )
+
+
+def test_display_fan_low_updates_managed_intent(ha: HAClient) -> None:
+    """Physical T6 off+Low fan maps back to managed fan_only intent."""
+    ha.set_climate_hvac_mode(OFFICE, "off")
+    ha.set_climate_hvac_mode(LIVING, "off")
+    ha.wait_for_state(HEAD_LIVING, lambda s: s["state"] == "off", timeout=15.0)
+    ha.wait_for_state(
+        DISPLAY_LIVING,
+        lambda s: s["state"] == "off"
+        and s["attributes"]["fan_mode"] == "Auto low",
+        timeout=15.0,
+        description="display is parked at off/auto before wall edit",
+    )
+    # Let the display dispatcher's echo-ignore window expire so this
+    # service call represents a real wall edit, not our own mirror write.
+    time.sleep(2.2)
+
+    ha.call_service(
+        "climate",
+        "set_fan_mode",
+        {"entity_id": DISPLAY_LIVING, "fan_mode": "Low"},
+    )
+    time.sleep(TICK_SECONDS)
+    _wait_tick(ha, LIVING)
+
+    managed = ha.wait_for_state(
+        LIVING,
+        lambda s: s["state"] == "fan_only",
+        timeout=20.0,
+        description="managed climate adopted display fan-only intent",
+    )
+    assert managed["state"] == "fan_only"
+    ha.wait_for_state(
+        HEAD_LIVING,
+        lambda s: s["state"] == "fan_only",
+        timeout=15.0,
+        description="display fan-only intent propagated to head",
     )
 
 
@@ -529,10 +597,12 @@ def test_heater_only_zone_recovers_when_user_picks_supported_mode(
     request.
     """
     # Stress the dispatcher with an unsupported mode first…
+    ha.set_input_number("input_number.living_temp", 18.0)
     _set_temp(ha, HEATONLY_ZONE, "cool", 18.0)
     time.sleep(TICK_SECONDS)
 
-    # …then switch back to a mode the head supports.
+    # …then switch back to a mode the head supports, with a real heat
+    # demand so arbitration has a non-zero reason to dispatch it.
     _set_temp(ha, HEATONLY_ZONE, "heat", 22.0)
 
     ha.wait_for_state(

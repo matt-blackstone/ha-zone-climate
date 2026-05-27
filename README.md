@@ -1,12 +1,12 @@
 # Home Assistant Multi-Split Zone Controller
 
-[![Validate](https://github.com/matt-blackstone/ha-zone-climate/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/matt-blackstone/ha-zone-climate/actions/workflows/validate.yml)
+[![Validate](https://github.com/matt-blackstone/ha-zone-climate/actions/workflows/validate.yml/badge.svg)](https://github.com/matt-blackstone/ha-zone-climate/actions/workflows/validate.yml)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
 Custom Home Assistant integration that hides multi-split mini-split
 restrictions, sensor fusion, occupancy-aware setback, fan coordination,
-auxiliary heat, and (eventually) psychrometric comfort behind a single
-managed `climate` entity per zone.
+auxiliary heat, psychrometric comfort, and optional physical display
+thermostats behind a single managed `climate` entity per zone.
 
 The full architectural design is in [`design-overview.md`](design-overview.md);
 the staged implementation roadmap is in
@@ -24,6 +24,7 @@ the staged implementation roadmap is in
 | 6 | Hidden auxiliary heat | complete |
 | 7 | Humidity-aware scoring | complete |
 | 8 | Full psychrometric comfort | complete |
+| 9 | Physical display thermostat support | complete |
 
 ## Repository layout
 
@@ -44,6 +45,10 @@ custom_components/multisplit_zone_controller/
   aux_heat.py            # Aux-heat policy + transition state machine
   aux_heat_dispatch.py   # Service calls to upstream switch / climate aux device
   psychrometrics.py      # Sat. vapour pressure, humidity ratio, enthalpy, PMV, comfort temp
+  display_mapping.py     # Physical thermostat mode/fan-mode translation
+  display_dispatch.py    # Service calls to display thermostat climate entities
+  display_listener.py    # Wall-thermostat edits → managed zone intent
+  display_echo.py        # Echo-ignore window for bidirectional sync
   coordinator.py         # DataUpdateCoordinator per group; orchestrates everything
   dispatch.py            # Service calls to upstream head climates
   climate.py             # Managed user-facing thermostat
@@ -65,7 +70,36 @@ hacs.json                # HACS custom-integration metadata (display name,
                          # min HA version, README rendering)
 .github/workflows/
   validate.yml           # HACS + hassfest validation on PR / push / nightly
+
+scripts/
+  validate.sh            # Run the same HACS + hassfest checks locally
+                         # via Docker, before pushing
 ```
+
+### What HACS ships vs what stays in the repo
+
+The repo intentionally segregates **shipping content** from
+**dev infrastructure**:
+
+| Path | Shipped to user installs by HACS? |
+|---|---|
+| `custom_components/multisplit_zone_controller/` | **Yes** — copied verbatim into `<user_config>/custom_components/multisplit_zone_controller/`. This is the only directory HACS install touches. |
+| `tests/`, `scripts/`, `config/`, `config-ui/`, `docker-compose*.yml`, `pyproject.toml` | No — repo-only dev scaffolding. |
+| `*.md` (README, INSTALL, SETUP, ADVANCED, design-overview) | No — rendered on the GitHub repo page (and HACS shows the README inline via `render_readme: true`), but never copied to user installs. |
+| `.github/`, `hacs.json`, `.gitignore` | No — repo-tooling metadata, never relevant to a user's HA. |
+
+So **anything you add to `custom_components/multisplit_zone_controller/`
+ships to every user**; anything outside that directory stays in the
+repo. Be deliberate about which side of that line a new file goes
+on. If in doubt: dev fixtures, sandbox configs, test helpers,
+documentation, and CI configuration all stay outside; only runtime
+integration code, the manifest, and the translations go inside.
+
+Hassfest scans the *entire* repo for `manifest.json` files, so the
+test-only `tests/integration/recording_climate/manifest.json` is also
+validated by CI even though HACS will never ship it. Keep its
+manifest valid (key order, required fields) for that reason — it
+doesn't reach end users, but it does need to pass hassfest.
 
 ## Running the test suite
 
@@ -82,11 +116,11 @@ python3 -m venv .venv
 
 `tests/integration/` boots a real Home Assistant container, mounts our
 custom integration plus a tiny `recording_climate` test helper that
-captures upstream service calls, and drives twelve scenario tests
-through the live REST API. They cover integration loading, basic head
-dispatch, compressor-group arbitration, safety overrides, occupancy
-setback, hidden auxiliary heat (activation and recovery), and
-diagnostic sensors.
+captures upstream service calls, and drives scenario tests through
+the live REST API. They cover integration loading, basic head
+dispatch, display thermostat mirroring, compressor-group arbitration,
+safety overrides, occupancy setback, hidden auxiliary heat
+(activation and recovery), and diagnostic sensors.
 
 The tests are gated behind an environment variable so they don't run
 on plain `pytest` invocations:
@@ -143,7 +177,7 @@ See [`INSTALL.md`](INSTALL.md) for the full installation guide,
 covering all four Home Assistant install types (HAOS, Supervised,
 Container, Core) and three install methods (HACS as a custom
 repository, manual release zip, git clone). Quick version: add
-`https://github.com/mblackstone/ha-zone-climate` as a custom
+`https://github.com/matt-blackstone/ha-zone-climate` as a custom
 repository in HACS, download, restart HA. Then continue at
 *Configuration* below.
 
@@ -353,6 +387,139 @@ exposed in a form.
   Inline TODO marker lives at the top of `arbitrate()` in
   `custom_components/multisplit_zone_controller/arbitration.py`.
 
+## Feature roadmap
+
+User-visible features that are designed and queued for implementation
+but not yet built. Each entry captures the agreed shape so a future
+implementation pass (or contributor) doesn't have to re-litigate the
+design decisions.
+
+### Physical display thermostat support (Phase 9, complete in v0.2.0)
+
+Lets a wall-mounted physical thermostat (e.g. **Honeywell T6 Pro
+Z-Wave**) act as a **bidirectional UI mirror** of a zone's managed
+climate entity — without it being the actuator. Lower-friction
+than reaching for a phone for every setpoint nudge, especially in
+multi-occupant households.
+
+The physical thermostat is configured (or wired) **not** to control
+a load. The mini-split head still does the work; the wall device
+just displays state and accepts physical adjustments.
+
+**Three I/O surfaces**, no changes to arbitration / safety logic:
+
+| Surface | Direction | Module | Pattern |
+|---|---|---|---|
+| Display dispatcher | Managed → T6 | `display_dispatch.py` | Mirrors `dispatch.py` (rate-limited, capability-checked, optional `always_assert`). Calls `climate.set_hvac_mode`, `climate.set_fan_mode`, `climate.set_temperature` on each configured display thermostat. |
+| Display listener | T6 → managed | `display_listener.py` | `async_track_state_change_event` per configured display, but the handler **filters inside** to only act when user-intent attributes change (`hvac_mode`, `fan_mode`, `temperature` / `target_temp_low` / `target_temp_high`). Updates in-memory user intent on the coordinator; the **next natural coordinator tick** propagates it to the head. Echo-ignore window (~2 s) prevents our own writes from feeding back as user input. |
+| Sensor contribution | T6 → fusion | `coordinator.py` | Auto-pulls `current_temperature` / `current_humidity` from the climate entity's attributes. Low default weight (~0.3) reflects Z-Wave's slow update cadence. |
+
+**Mode and fan-mode mapping** (the trickiest part — the T6 exposes
+*two* user-facing knobs, and `fan_only` / `dry` semantically live in
+the fan column, not the mode column):
+
+*Managed → T6:*
+
+| Managed mode | T6 mode | T6 fan |
+|---|---|---|
+| `off` | `off` | `Auto low` |
+| `heat` | `heat` | `Auto low` |
+| `cool` | `cool` | `Auto low` |
+| `fan_only` | `off` | `Low` |
+| `dry` | `cool` | `Auto low` |
+| `auto` | `auto` if supported; otherwise sync status becomes `stale` | `Auto low` |
+
+*T6 → Managed:*
+
+| T6 mode | T6 fan | Managed mode |
+|---|---|---|
+| `off` | `Auto low` / `auto` | `off` |
+| `off` | `Low` / `Circulation` / `on` / `circulate` | `fan_only` |
+| `heat` / `cool` / `auto` | any | same |
+| `em_heat` | any | `heat` (integration's own aux logic still decides whether aux fires) |
+
+**Other agreed decisions:**
+
+- **Auto-mode setpoint:** managed stays single-setpoint. Honeywell
+  T6 Pro Z-Wave units observed through `zwave_js` expose only
+  `off` / `heat` / `cool`, so a managed `auto` request is reported
+  as display-sync `stale` rather than forcing an invented dual
+  setpoint shape onto the managed entity.
+- **Sensor weighting:** default `temperature_weight: 0.3`,
+  `humidity_weight: 0.3` (vs `1.0` for fast WiFi/Zigbee sensors)
+  because Z-Wave thermostats typically update every 30-60 s.
+  Users can still also list separate `sensor.*` entities under
+  `external_temp_sensors:` for different per-source weighting.
+- **Setpoint range clamping:** when the managed setpoint falls
+  outside the T6's `min_temp` / `max_temp` (typically 50-99 °F),
+  clamp on the T6 (it shows the clamped value) and surface the
+  truth via the managed entity's `status_message` so the actual
+  state is visible in HA's own UI.
+- **Conflict resolution:** last writer wins, with a ~2 s
+  echo-ignore window. The physical action naturally arrives
+  later than a mobile-UI tap, so this favours the person at
+  the wall without needing a special rule.
+- **Listener strategy:** event-driven for user-intent
+  attributes (mode, fan_mode, setpoint); fusion data
+  (`current_temperature`, `current_humidity`) stays
+  poll-driven through the existing coordinator tick. The
+  handler is a single `async_track_state_change_event`
+  subscription per display that filters internally by
+  comparing `old_state.attributes` to `new_state.attributes`
+  on the user-intent subset — cheap (~10 lines), self-
+  documenting, no extra wakeups from fusion-data updates
+  feeding through the listener.
+- **Refresh timing:** the listener does **not** trigger an
+  immediate coordinator refresh. It updates in-memory user
+  intent and lets the next natural coordinator tick (≤ 5 s)
+  carry it through to the head. Trade-off: setpoint nudges
+  on the T6 take up to 5 s to translate into mini-split
+  action, but we avoid spamming `coordinator.async_request_refresh()`
+  on every wall-thermostat poke. If field experience shows
+  5 s feels sluggish, promoting to `async_request_refresh()`
+  (or a debounced version of it) is a one-line change with
+  no public API impact.
+- **Multi-display zones:** `display_thermostats:` is a list, so
+  one zone can mirror to N wall devices (e.g. master bedroom
+  + ensuite both display the bedroom-zone state).
+- **Scope:** T6-Pro-Z-Wave is the validated reference. The
+  dispatcher / listener are written against the generic HA
+  `climate` interface so Ecobee, Sinopé, etc. can be added as a
+  "verify their mode/fan-mode value strings" exercise rather
+  than a re-architecture.
+
+**Config shape:**
+
+```yaml
+zones:
+  - zone_id: living
+    head_climate: climate.upstream_mini_split_living
+    display_thermostats:
+      - entity_id: climate.honeywell_t6_pro_living
+        sync_setpoint: true            # default
+        sync_mode: true                # default
+        sync_fan_mode: true            # default
+        always_assert: false           # default; see always_assert_head_state
+        contribute_temperature: true   # default
+        contribute_humidity: true      # default
+        temperature_weight: 0.3        # low because Z-Wave updates slowly
+        humidity_weight: 0.3
+        auto_fan_mode: "Auto low"      # Honeywell T6 / zwave_js default
+        fan_only_fan_mode: "Low"
+        circulate_fan_mode: "Circulation"
+```
+
+**Documentation impact:**
+
+- `ADVANCED.md → Display thermostats` has the worked example,
+  mode-mapping table, T6 wiring caveats (configure for no-load
+  operation; disable T6 schedules if you'd rather schedule from HA).
+- `INSTALL.md` calls out that this is opt-in and does not change
+  any existing behaviour.
+- A diagnostic sensor per display reports `synced` / `stale` /
+  `unreachable`, with attributes showing desired mode, fan mode,
+  target, clamping, and last error.
+
 ## Releasing
 
 The integration is distributed via HACS as a custom repository. Cutting
@@ -361,7 +528,22 @@ a new release is two files + two git commands.
 ### Pre-flight
 
 * CI is green on `main` (the `Validate` workflow runs HACS validation
-  + hassfest on every push).
+  + hassfest on every push). To run the same checks **locally before
+  pushing**, use `scripts/validate.sh` — it runs both validators in
+  the exact Docker images CI uses:
+
+  ```bash
+  scripts/validate.sh                # hassfest + HACS
+  scripts/validate.sh hassfest       # hassfest only (no token needed)
+  scripts/validate.sh hacs           # HACS only (needs GITHUB_TOKEN
+                                     # or gh auth login)
+  ```
+
+  Hassfest catches the structural issues (manifest key order, missing
+  CONFIG_SCHEMA, translation key drift); HACS catches store-specific
+  issues (hacs.json shape, version field presence). The HACS validator
+  needs a GitHub token because it queries the GitHub API for repo
+  metadata and brand registration; hassfest needs no credentials.
 * `custom_components/multisplit_zone_controller/manifest.json` →
   bump `"version"` to the new semver.
 * `hacs.json` → no version bump needed (HACS reads the version from
@@ -403,6 +585,6 @@ update all three in the same commit.
 
 HACS *can* install custom integrations off the default branch (`main`)
 when no tagged releases exist — it falls back to the latest commit's
-manifest version. So the integration is technically installable today,
-but users won't get update notifications until the first tag exists.
-Cut `v0.1.0` as soon as you're comfortable having strangers install it.
+manifest version. Tagged releases are still preferred because users
+get update notifications. The display-thermostat feature is intended
+for `v0.2.0`.

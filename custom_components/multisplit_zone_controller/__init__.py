@@ -47,18 +47,11 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ("climate", "sensor", "binary_sensor")
 
 
-def _build_config_schema():
-    import voluptuous as vol
+import voluptuous as vol
 
-    from .config_schema import INTEGRATION_SCHEMA
+from .config_schema import INTEGRATION_SCHEMA
 
-    return vol.Schema({DOMAIN: INTEGRATION_SCHEMA}, extra=vol.ALLOW_EXTRA)
-
-
-try:  # Only constructed when Home Assistant (and voluptuous) are present.
-    CONFIG_SCHEMA = _build_config_schema()
-except Exception:  # noqa: BLE001 - tolerate missing deps in pure-logic test env
-    CONFIG_SCHEMA = None  # type: ignore[assignment]
+CONFIG_SCHEMA = vol.Schema({DOMAIN: INTEGRATION_SCHEMA}, extra=vol.ALLOW_EXTRA)
 
 
 def _ensure_data(hass: "HomeAssistant") -> dict:
@@ -204,7 +197,9 @@ async def async_unload_entry(
 
     group_ids = bucket["entry_groups"].pop(entry.entry_id, set())
     for gid in group_ids:
-        bucket["coordinators"].pop(gid, None)
+        coordinator = bucket["coordinators"].pop(gid, None)
+        if coordinator is not None:
+            coordinator.detach_display_listeners()
     return True
 
 

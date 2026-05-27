@@ -87,6 +87,19 @@ CONF_USE_PSYCHROMETRIC_SCORING = "use_psychrometric_scoring"
 
 CONF_ALWAYS_ASSERT_HEAD_STATE = "always_assert_head_state"
 
+CONF_DISPLAY_THERMOSTATS = "display_thermostats"
+CONF_DISPLAY_SYNC_SETPOINT = "sync_setpoint"
+CONF_DISPLAY_SYNC_MODE = "sync_mode"
+CONF_DISPLAY_SYNC_FAN_MODE = "sync_fan_mode"
+CONF_DISPLAY_ALWAYS_ASSERT = "always_assert"
+CONF_DISPLAY_CONTRIBUTE_TEMPERATURE = "contribute_temperature"
+CONF_DISPLAY_CONTRIBUTE_HUMIDITY = "contribute_humidity"
+CONF_DISPLAY_TEMPERATURE_WEIGHT = "temperature_weight"
+CONF_DISPLAY_HUMIDITY_WEIGHT = "humidity_weight"
+CONF_DISPLAY_AUTO_FAN_MODE = "auto_fan_mode"
+CONF_DISPLAY_FAN_ONLY_FAN_MODE = "fan_only_fan_mode"
+CONF_DISPLAY_CIRCULATE_FAN_MODE = "circulate_fan_mode"
+
 CONF_DISABLE_DEFAULT_INCOMPATIBLE_MODE_PAIRS = (
     "disable_default_incompatible_mode_pairs"
 )

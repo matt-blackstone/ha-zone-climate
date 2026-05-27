@@ -24,7 +24,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import GroupCoordinator
-from .models import ZoneConfig
+from .models import DisplayThermostatConfig, ZoneConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +43,14 @@ def _build_zone_entities(coordinator: GroupCoordinator) -> list[SensorEntity]:
         out.append(LearnedCoolingRateSensor(coordinator, zone_cfg))
         out.append(HumidityPrioritySensor(coordinator, zone_cfg))
         out.append(EffectiveComfortSensor(coordinator, zone_cfg))
+        for display in zone_cfg.display_thermostats:
+            out.append(
+                DisplayThermostatSyncStatusSensor(
+                    coordinator,
+                    zone_cfg,
+                    display,
+                )
+            )
     return out
 
 
@@ -364,3 +372,50 @@ class ActiveSetpointSensor(_ZoneSensorBase):
             "comfort_setpoint": decision.comfort_setpoint,
             "occupancy_state": decision.occupancy_state.value,
         }
+
+
+class DisplayThermostatSyncStatusSensor(_ZoneSensorBase):
+    """Diagnostic sync state for a configured physical display thermostat."""
+
+    def __init__(
+        self,
+        coordinator: GroupCoordinator,
+        zone: ZoneConfig,
+        display: DisplayThermostatConfig,
+    ) -> None:
+        suffix = f"display_thermostat_sync_status_{_entity_slug(display.entity_id)}"
+        super().__init__(coordinator, zone, suffix)
+        self._display = display
+        self._attr_name = (
+            f"{zone.name} display thermostat sync status "
+            f"({display.entity_id})"
+        )
+
+    @property
+    def native_value(self) -> str:
+        status = self.coordinator.display_sync_status(
+            self._zone.zone_id,
+            self._display.entity_id,
+        )
+        return status.state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        status = self.coordinator.display_sync_status(
+            self._zone.zone_id,
+            self._display.entity_id,
+        )
+        return {
+            "entity_id": self._display.entity_id,
+            "last_error": status.last_error,
+            "last_success": status.last_success,
+            "clamped": status.clamped,
+            "desired_hvac_mode": status.desired_hvac_mode,
+            "desired_fan_mode": status.desired_fan_mode,
+            "desired_temperature": status.desired_temperature,
+            "sent_temperature": status.sent_temperature,
+        }
+
+
+def _entity_slug(entity_id: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in entity_id.lower())

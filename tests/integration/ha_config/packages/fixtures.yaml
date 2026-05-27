@@ -71,6 +71,12 @@ climate:
     current_temperature_entity: sensor.living_temp
     initial_temperature: 22
   - platform: recording_climate
+    name: Fake Display Living
+    current_temperature_entity: sensor.living_temp
+    initial_temperature: 22
+    modes: ["off", "heat", "cool"]
+    fan_modes: ["Auto low", "Low", "Circulation"]
+  - platform: recording_climate
     name: Fake Head Office
     current_temperature_entity: sensor.office_temp
     initial_temperature: 22

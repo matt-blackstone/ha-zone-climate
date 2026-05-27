@@ -333,6 +333,87 @@ def test_always_assert_head_state_can_be_enabled() -> None:
     assert groups[0].zones[0].always_assert_head_state is True
 
 
+def test_display_thermostat_defaults_parse() -> None:
+    cfg = {
+        "groups": [
+            {
+                "group_id": "g1",
+                "name": "G1",
+                "zones": [
+                    {
+                        "zone_id": "z1",
+                        "name": "Z1",
+                        "head_climate": "climate.head_z1",
+                        "display_thermostats": [
+                            {"entity_id": "climate.honeywell_t6_z1"}
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    groups = parse_groups(cfg)
+    display = groups[0].zones[0].display_thermostats[0]
+    assert display.entity_id == "climate.honeywell_t6_z1"
+    assert display.sync_setpoint is True
+    assert display.sync_mode is True
+    assert display.sync_fan_mode is True
+    assert display.always_assert is False
+    assert display.contribute_temperature is True
+    assert display.contribute_humidity is True
+    assert display.temperature_weight == 0.3
+    assert display.humidity_weight == 0.3
+    assert display.auto_fan_mode == "Auto low"
+    assert display.fan_only_fan_mode == "Low"
+    assert display.circulate_fan_mode == "Circulation"
+
+
+def test_display_thermostat_options_parse() -> None:
+    cfg = {
+        "groups": [
+            {
+                "group_id": "g1",
+                "name": "G1",
+                "zones": [
+                    {
+                        "zone_id": "z1",
+                        "name": "Z1",
+                        "head_climate": "climate.head_z1",
+                        "display_thermostats": [
+                            {
+                                "entity_id": "climate.display",
+                                "sync_setpoint": False,
+                                "sync_mode": False,
+                                "sync_fan_mode": False,
+                                "always_assert": True,
+                                "contribute_temperature": False,
+                                "contribute_humidity": False,
+                                "temperature_weight": 0.5,
+                                "humidity_weight": 0.4,
+                                "auto_fan_mode": "auto",
+                                "fan_only_fan_mode": "on",
+                                "circulate_fan_mode": "circulate",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    display = parse_groups(cfg)[0].zones[0].display_thermostats[0]
+    assert display.sync_setpoint is False
+    assert display.sync_mode is False
+    assert display.sync_fan_mode is False
+    assert display.always_assert is True
+    assert display.contribute_temperature is False
+    assert display.contribute_humidity is False
+    assert display.temperature_weight == 0.5
+    assert display.humidity_weight == 0.4
+    assert display.auto_fan_mode == "auto"
+    assert display.fan_only_fan_mode == "on"
+    assert display.circulate_fan_mode == "circulate"
+
+
 def test_sensor_full_dict_form_preserves_weight_and_offset() -> None:
     cfg = {
         "groups": [

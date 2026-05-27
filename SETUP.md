@@ -217,6 +217,7 @@ will log the schema error and skip setup until you fix it.
 | `fusion.head_temp_sensor` | `sensor.*` or `climate.*` | Provide the head's local thermistor reading. If a `climate.*` is given, its `current_temperature` attribute is used. |
 | `fusion.external_temp_sensors` | `sensor.*` (`device_class: temperature`) | Independent room thermometers |
 | `fusion.external_humidity_sensors` | `sensor.*` (`device_class: humidity`) | Independent room hygrometers |
+| `display_thermostats[].entity_id` | `climate.*` | Optional wall display thermostat. Must accept `set_hvac_mode`, `set_temperature`, and ideally `set_fan_mode`; Honeywell T6 Pro Z-Wave is the reference device. |
 | `occupancy.source_entity_id` | `binary_sensor.*`, `device_tracker.*`, `person.*`, `input_boolean.*` | Truthy = occupied |
 | `fan.fan_entity_id` | `fan.*` | Standard `fan.turn_on/off` (and ideally `set_percentage`) |
 | `aux_heat.device_entity_id` | `switch.*` or `climate.*` | A resistive heater the integration can turn on transparently |

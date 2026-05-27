@@ -35,6 +35,8 @@ multisplit_zone_controller:
             head_temp_sensor: climate.fake_head_living
             external_temp_sensors:
               - sensor.living_temp
+          display_thermostats:
+            - entity_id: climate.fake_display_living
           safety:
             min_temp: 16
             max_temp: 28

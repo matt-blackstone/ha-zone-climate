@@ -28,6 +28,18 @@ from .const import (
     CONF_AUX_TARGET_TEMPERATURE,
     CONF_CALIBRATION_OFFSET,
     CONF_DEFAULT_TARGET,
+    CONF_DISPLAY_ALWAYS_ASSERT,
+    CONF_DISPLAY_AUTO_FAN_MODE,
+    CONF_DISPLAY_CIRCULATE_FAN_MODE,
+    CONF_DISPLAY_CONTRIBUTE_HUMIDITY,
+    CONF_DISPLAY_CONTRIBUTE_TEMPERATURE,
+    CONF_DISPLAY_FAN_ONLY_FAN_MODE,
+    CONF_DISPLAY_HUMIDITY_WEIGHT,
+    CONF_DISPLAY_SYNC_FAN_MODE,
+    CONF_DISPLAY_SYNC_MODE,
+    CONF_DISPLAY_SYNC_SETPOINT,
+    CONF_DISPLAY_TEMPERATURE_WEIGHT,
+    CONF_DISPLAY_THERMOSTATS,
     CONF_DISABLE_DEFAULT_INCOMPATIBLE_MODE_PAIRS,
     CONF_ENTITY_ID,
     CONF_EXTERNAL_HUMIDITY_SENSORS,
@@ -93,6 +105,7 @@ from .models import (
     DEFAULT_INCOMPATIBLE_MODE_PAIRS,
     AuxHeatConfig,
     AuxHeatDeviceType,
+    DisplayThermostatConfig,
     FanConfig,
     FanDirection,
     HumidityPolicy,
@@ -287,6 +300,31 @@ AUX_HEAT_SCHEMA = vol.Schema(
 )
 
 
+DISPLAY_THERMOSTAT_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_ENTITY_ID): str,
+        vol.Optional(CONF_DISPLAY_SYNC_SETPOINT, default=True): bool,
+        vol.Optional(CONF_DISPLAY_SYNC_MODE, default=True): bool,
+        vol.Optional(CONF_DISPLAY_SYNC_FAN_MODE, default=True): bool,
+        vol.Optional(CONF_DISPLAY_ALWAYS_ASSERT, default=False): bool,
+        vol.Optional(CONF_DISPLAY_CONTRIBUTE_TEMPERATURE, default=True): bool,
+        vol.Optional(CONF_DISPLAY_CONTRIBUTE_HUMIDITY, default=True): bool,
+        vol.Optional(CONF_DISPLAY_TEMPERATURE_WEIGHT, default=0.3): vol.All(
+            vol.Coerce(float), vol.Range(min=0.0)
+        ),
+        vol.Optional(CONF_DISPLAY_HUMIDITY_WEIGHT, default=0.3): vol.All(
+            vol.Coerce(float), vol.Range(min=0.0)
+        ),
+        # Honeywell T6 Pro Z-Wave via zwave_js exposes title-cased fan
+        # strings. Keep them configurable so other climate platforms can
+        # use "auto" / "on" style strings without a code change.
+        vol.Optional(CONF_DISPLAY_AUTO_FAN_MODE, default="Auto low"): str,
+        vol.Optional(CONF_DISPLAY_FAN_ONLY_FAN_MODE, default="Low"): str,
+        vol.Optional(CONF_DISPLAY_CIRCULATE_FAN_MODE, default="Circulation"): str,
+    }
+)
+
+
 PRECONDITIONING_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_PRECOND_ENABLED, default=True): bool,
@@ -320,6 +358,9 @@ ZONE_SCHEMA = vol.Schema(
         vol.Optional(CONF_PRECONDITIONING, default=dict): PRECONDITIONING_SCHEMA,
         vol.Optional(CONF_FAN, default=dict): FAN_SCHEMA,
         vol.Optional(CONF_AUX_HEAT, default=dict): AUX_HEAT_SCHEMA,
+        vol.Optional(CONF_DISPLAY_THERMOSTATS, default=list): [
+            DISPLAY_THERMOSTAT_SCHEMA
+        ],
         vol.Optional(CONF_HUMIDITY, default=dict): HUMIDITY_SCHEMA,
         vol.Optional(CONF_MIN_TEMP, default=16.0): vol.Coerce(float),
         vol.Optional(CONF_MAX_TEMP, default=30.0): vol.Coerce(float),
@@ -452,6 +493,7 @@ def _build_zone(raw: dict[str, Any]) -> ZoneConfig:
     raw_precond = raw[CONF_PRECONDITIONING]
     raw_fan = raw[CONF_FAN]
     raw_aux = raw[CONF_AUX_HEAT]
+    raw_displays = raw[CONF_DISPLAY_THERMOSTATS]
     raw_humidity = raw[CONF_HUMIDITY]
 
     fusion = FusionConfig(
@@ -548,6 +590,24 @@ def _build_zone(raw: dict[str, Any]) -> ZoneConfig:
         settle_seconds=raw_aux[CONF_AUX_SETTLE_SECONDS],
     )
 
+    displays = tuple(
+        DisplayThermostatConfig(
+            entity_id=d[CONF_ENTITY_ID],
+            sync_setpoint=d[CONF_DISPLAY_SYNC_SETPOINT],
+            sync_mode=d[CONF_DISPLAY_SYNC_MODE],
+            sync_fan_mode=d[CONF_DISPLAY_SYNC_FAN_MODE],
+            always_assert=d[CONF_DISPLAY_ALWAYS_ASSERT],
+            contribute_temperature=d[CONF_DISPLAY_CONTRIBUTE_TEMPERATURE],
+            contribute_humidity=d[CONF_DISPLAY_CONTRIBUTE_HUMIDITY],
+            temperature_weight=d[CONF_DISPLAY_TEMPERATURE_WEIGHT],
+            humidity_weight=d[CONF_DISPLAY_HUMIDITY_WEIGHT],
+            auto_fan_mode=d[CONF_DISPLAY_AUTO_FAN_MODE],
+            fan_only_fan_mode=d[CONF_DISPLAY_FAN_ONLY_FAN_MODE],
+            circulate_fan_mode=d[CONF_DISPLAY_CIRCULATE_FAN_MODE],
+        )
+        for d in raw_displays
+    )
+
     return ZoneConfig(
         zone_id=raw[CONF_ZONE_ID],
         name=raw[CONF_NAME],
@@ -559,6 +619,7 @@ def _build_zone(raw: dict[str, Any]) -> ZoneConfig:
         pre_conditioning=precond,
         fan=fan,
         aux_heat=aux,
+        display_thermostats=displays,
         humidity=humidity,
         min_temp=raw[CONF_MIN_TEMP],
         max_temp=raw[CONF_MAX_TEMP],
