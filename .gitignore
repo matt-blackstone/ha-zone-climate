@@ -7,7 +7,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Home Assistant manual sandbox state
+# Home Assistant manual sandbox state (YAML sandbox)
 config/.storage/
 config/.cloud/
 config/deps/
@@ -16,6 +16,25 @@ config/blueprints/
 config/home-assistant_v2.db*
 config/home-assistant.log*
 config/.HA_VERSION
+
+# Home Assistant manual sandbox state (UI sandbox)
+# .storage/ contains hashed credentials and refresh tokens — must
+# never be committed.
+config-ui/.storage/
+config-ui/.cloud/
+config-ui/deps/
+config-ui/tts/
+config-ui/blueprints/
+config-ui/home-assistant_v2.db*
+config-ui/home-assistant.log*
+config-ui/.HA_VERSION
+config-ui/.ha_run.lock
+
+# macOS
+.DS_Store
+
+# Local credentials generated during agent/developer workflows
+.codex-keys/
 
 # Home Assistant e2e test container state
 tests/integration/ha_config/.storage/
@@ -29,5 +48,3 @@ tests/integration/ha_config/.HA_VERSION
 tests/integration/ha_config/secrets.yaml
 # configuration.yaml is generated from configuration.yaml.template per session
 tests/integration/ha_config/configuration.yaml
-
-
